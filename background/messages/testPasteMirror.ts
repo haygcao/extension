@@ -1,5 +1,6 @@
 import type { PlasmoMessaging } from "@plasmohq/messaging";
 
+import { getSettings } from "~storage/settings";
 import { mirrorToPaste, type MirrorResult } from "~utils/paste/mirror";
 
 export interface TestPasteMirrorRequestBody {
@@ -15,9 +16,12 @@ const handler: PlasmoMessaging.MessageHandler<
   TestPasteMirrorRequestBody,
   TestPasteMirrorResponseBody
 > = async (req, res) => {
+  const settings = await getSettings();
   const content = req.body?.content ?? `Clipboard History test — ${new Date().toISOString()}`;
 
-  res.send(await mirrorToPaste(content));
+  res.send(
+    await mirrorToPaste(content, { url: settings.pasteMcpUrl, token: settings.pasteMcpToken }),
+  );
 };
 
 export default handler;

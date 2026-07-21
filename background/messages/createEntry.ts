@@ -35,7 +35,10 @@ export const handleCreateEntryRequest = async (body: CreateEntryRequestBody) => 
       // Best-effort mirror of the same entry into the Paste for Mac app via its
       // MCP server. Fire-and-forget: never block or fail clipboard capture.
       if (shouldCreateEntry && settings.pasteMirrorEnabled) {
-        mirrorToPaste(body.content).then((result) => {
+        mirrorToPaste(body.content, {
+          url: settings.pasteMcpUrl,
+          token: settings.pasteMcpToken,
+        }).then((result) => {
           if (!result.ok) {
             console.warn("[paste-mirror]", result.error);
           }

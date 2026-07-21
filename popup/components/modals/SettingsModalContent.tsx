@@ -12,12 +12,14 @@ import {
   Indicator,
   NumberInput,
   Paper,
+  PasswordInput,
   rem,
   Select,
   Stack,
   Switch,
   Tabs,
   Text,
+  TextInput,
   Title,
   useMantineTheme,
 } from "@mantine/core";
@@ -96,6 +98,8 @@ export const SettingsModalContent = () => {
 
   const [file, setFile] = useState<File | null>(null);
   const [pasteTesting, setPasteTesting] = useState(false);
+  const [pasteUrl, setPasteUrl] = useState(settings.pasteMcpUrl);
+  const [pasteToken, setPasteToken] = useState(settings.pasteMcpToken);
 
   const storageForm = useForm<StorageFormValues>({
     defaultValues: {
@@ -774,12 +778,7 @@ export const SettingsModalContent = () => {
                     <Anchor href="https://pasteapp.io" target="_blank">
                       Paste
                     </Anchor>{" "}
-                    app on your Mac through its local MCP server. Requires Paste 6.6+ with MCP
-                    enabled and the one-time native bridge setup (see{" "}
-                    <Text span fw={700}>
-                      paste-bridge/README.md
-                    </Text>
-                    ).
+                    app via its MCP server.
                   </Text>
                 </Stack>
                 <Switch
@@ -790,11 +789,43 @@ export const SettingsModalContent = () => {
                 />
               </Group>
               <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+              <Stack spacing="xs">
+                <Stack spacing={0}>
+                  <Title order={6}>MCP Endpoint (LAN)</Title>
+                  <Text fz="xs">
+                    URL of a Streamable-HTTP MCP endpoint reachable from this browser — e.g. an
+                    MCP-bridging service on your Mac at{" "}
+                    <Text span fw={700}>
+                      http://192.168.1.50:8888/mcp/paste
+                    </Text>
+                    . Leave blank to use the local native bridge instead (Paste on the same machine;
+                    see{" "}
+                    <Text span fw={700}>
+                      paste-bridge/README.md
+                    </Text>
+                    ).
+                  </Text>
+                </Stack>
+                <TextInput
+                  size="xs"
+                  placeholder="http://192.168.1.50:8888/mcp/paste"
+                  value={pasteUrl}
+                  onChange={(e) => setPasteUrl(e.currentTarget.value)}
+                />
+                <PasswordInput
+                  size="xs"
+                  placeholder="Bearer token (optional)"
+                  value={pasteToken}
+                  onChange={(e) => setPasteToken(e.currentTarget.value)}
+                />
+              </Stack>
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
               <Group align="flex-start" spacing="md" position="apart" noWrap>
                 <Stack spacing={0}>
-                  <Title order={6}>Test Connection</Title>
+                  <Title order={6}>Save &amp; Test Connection</Title>
                   <Text fz="xs">
-                    Send a sample item to Paste to verify the bridge is installed and connected.
+                    Save the endpoint, grant network access to it, and send a sample item to verify
+                    the connection.
                   </Text>
                 </Stack>
                 <Button
@@ -803,6 +834,41 @@ export const SettingsModalContent = () => {
                   onClick={async () => {
                     setPasteTesting(true);
                     try {
+                      const url = pasteUrl.trim();
+
+                      // A configured HTTP endpoint needs a host permission for
+                      // its origin. Request it here (requires a user gesture),
+                      // then the background fetch is allowed.
+                      if (url.length > 0) {
+                        let origin: string;
+                        try {
+                          origin = `${new URL(url).origin}/*`;
+                        } catch {
+                          notifications.show({
+                            color: "red",
+                            title: "Invalid URL",
+                            message: "Enter a full URL, e.g. http://192.168.1.50:8888/mcp/paste.",
+                          });
+                          return;
+                        }
+
+                        const granted = await chrome.permissions.request({ origins: [origin] });
+                        if (!granted) {
+                          notifications.show({
+                            color: "red",
+                            title: "Permission required",
+                            message: `Access to ${origin} was not granted.`,
+                          });
+                          return;
+                        }
+                      }
+
+                      await setSettings({
+                        ...settings,
+                        pasteMcpUrl: url,
+                        pasteMcpToken: pasteToken,
+                      });
+
                       const result = await sendToBackground<
                         TestPasteMirrorRequestBody,
                         TestPasteMirrorResponseBody
@@ -812,7 +878,7 @@ export const SettingsModalContent = () => {
                         notifications.show({
                           color: "green",
                           title: "Connected to Paste",
-                          message: `Sent a test item via "${result.toolUsed}".`,
+                          message: `Sent a test item via "${result.toolUsed}" (${result.transport}).`,
                         });
                       } else {
                         notifications.show({
@@ -826,7 +892,7 @@ export const SettingsModalContent = () => {
                     }
                   }}
                 >
-                  Send Test Item
+                  Save &amp; Test
                 </Button>
               </Group>
             </Stack>
