@@ -19,6 +19,7 @@ export const defaultSettings = {
   localItemLimit: null,
   localItemCharacterLimit: null,
   displayMode: DisplayMode.Enum.Popup,
+  pasteMirrorEnabled: false,
 };
 
 export const Settings = z
@@ -35,6 +36,9 @@ export const Settings = z
     localItemLimit: z.number().nullable().default(defaultSettings.localItemLimit),
     localItemCharacterLimit: z.number().nullable().default(defaultSettings.localItemCharacterLimit),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
+    // When enabled, every newly captured entry is also mirrored into the Paste
+    // for Mac app via its local MCP server (through a native messaging bridge).
+    pasteMirrorEnabled: z.boolean().default(defaultSettings.pasteMirrorEnabled),
   })
   .default(defaultSettings);
 export type Settings = z.infer<typeof Settings>;

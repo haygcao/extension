@@ -28,6 +28,7 @@ import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
   IconAppWindow,
+  IconClipboardCheck,
   IconCloud,
   IconDatabase,
   IconDeviceFloppy,
@@ -44,6 +45,10 @@ import { z } from "zod";
 
 import { sendToBackground } from "@plasmohq/messaging";
 
+import type {
+  TestPasteMirrorRequestBody,
+  TestPasteMirrorResponseBody,
+} from "~background/messages/testPasteMirror";
 import type {
   UpdateContextMenusRequestBody,
   UpdateContextMenusResponseBody,
@@ -90,6 +95,7 @@ export const SettingsModalContent = () => {
   const cloudSettings = settingsQuery.data?.settings[0];
 
   const [file, setFile] = useState<File | null>(null);
+  const [pasteTesting, setPasteTesting] = useState(false);
 
   const storageForm = useForm<StorageFormValues>({
     defaultValues: {
@@ -157,6 +163,11 @@ export const SettingsModalContent = () => {
           >
             Cloud
           </Tabs.Tab>
+          {process.env.PLASMO_TARGET !== "firefox-mv2" && (
+            <Tabs.Tab value="paste" icon={<IconClipboardCheck size="0.8rem" />}>
+              Paste
+            </Tabs.Tab>
+          )}
         </Tabs.List>
 
         <Tabs.Panel value="general">
@@ -746,6 +757,81 @@ export const SettingsModalContent = () => {
             </form>
           )}
         </Tabs.Panel>
+
+        {process.env.PLASMO_TARGET !== "firefox-mv2" && (
+          <Tabs.Panel value="paste">
+            <Stack p="md">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group align="center" spacing="xs">
+                    <Title order={6}>Mirror to Paste</Title>
+                    <Badge size="xs" color="grape">
+                      Mac
+                    </Badge>
+                  </Group>
+                  <Text fz="xs">
+                    Also send every newly captured item to the{" "}
+                    <Anchor href="https://pasteapp.io" target="_blank">
+                      Paste
+                    </Anchor>{" "}
+                    app on your Mac through its local MCP server. Requires Paste 6.6+ with MCP
+                    enabled and the one-time native bridge setup (see{" "}
+                    <Text span fw={700}>
+                      paste-bridge/README.md
+                    </Text>
+                    ).
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={settings.pasteMirrorEnabled}
+                  onChange={async (e) => {
+                    await setSettings({ ...settings, pasteMirrorEnabled: e.target.checked });
+                  }}
+                />
+              </Group>
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>Test Connection</Title>
+                  <Text fz="xs">
+                    Send a sample item to Paste to verify the bridge is installed and connected.
+                  </Text>
+                </Stack>
+                <Button
+                  size="xs"
+                  loading={pasteTesting}
+                  onClick={async () => {
+                    setPasteTesting(true);
+                    try {
+                      const result = await sendToBackground<
+                        TestPasteMirrorRequestBody,
+                        TestPasteMirrorResponseBody
+                      >({ name: "testPasteMirror" });
+
+                      if (result.ok) {
+                        notifications.show({
+                          color: "green",
+                          title: "Connected to Paste",
+                          message: `Sent a test item via "${result.toolUsed}".`,
+                        });
+                      } else {
+                        notifications.show({
+                          color: "red",
+                          title: "Could not reach Paste",
+                          message: result.error ?? "Unknown error.",
+                        });
+                      }
+                    } finally {
+                      setPasteTesting(false);
+                    }
+                  }}
+                >
+                  Send Test Item
+                </Button>
+              </Group>
+            </Stack>
+          </Tabs.Panel>
+        )}
       </Tabs>
     </Paper>
   );

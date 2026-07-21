@@ -75,7 +75,8 @@
       "contextMenus",
       "scripting",
       "activeTab",
-      "sidePanel"
+      "sidePanel",
+      "nativeMessaging"
     ],
     "side_panel": {
       "default_path": "popup.html?ref=sidepanel"
