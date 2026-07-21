@@ -1,10 +1,40 @@
 # Paste bridge (native messaging host)
 
-Bridges the Clipboard History extension to the [Paste](https://pasteapp.io) app
-on macOS so captured clipboard items are also saved into Paste. It's a thin
-Chrome **native messaging** host that pipes MCP JSON-RPC between the extension
-and Paste's official [`@pasteapp/mcp`](https://www.npmjs.com/package/@pasteapp/mcp)
-server (which handles Paste port discovery, OAuth, and transport).
+Lets the Clipboard History extension save captured clipboard items into the
+[Paste](https://pasteapp.io) app. There are two ways to connect, chosen in the
+extension's **Settings → Paste** tab:
+
+## Option A — HTTP MCP endpoint (works cross-machine, no native host)
+
+If you can reach an MCP endpoint over HTTP, just set that URL in **Settings →
+Paste → MCP Endpoint (LAN)** and click **Save & Test**. This is the option to
+use when the browser and Paste run on **different machines** — e.g. Edge on
+Windows with Paste on a Mac exposed by a LAN MCP-bridging service at something
+like `http://192.168.1.50:8888/mcp/paste`.
+
+```
+extension (service worker) ──fetch (Streamable HTTP)──▶ http://<mac-ip>:<port>/mcp/paste
+```
+
+- No native host install is needed.
+- The extension requests a host permission for the URL's origin the first time
+  you click **Save & Test** (that's why the button needs a click — permission
+  prompts require a user gesture).
+- If the endpoint needs auth, put a bearer token in the token field.
+- Cross-origin/private-network note: the extension has the granted host
+  permission, but make sure your bridging service allows the request (respond to
+  CORS preflight and, if applicable, send `Access-Control-Allow-Private-Network: true`).
+
+`nativeMessaging` cannot reach a network address — it only launches a local host
+process — so cross-machine setups must use this HTTP option.
+
+## Option B — Native messaging host (same Mac only)
+
+When the browser and Paste run on the **same Mac**, leave the endpoint blank and
+install this native messaging host. It's a thin Chrome native messaging host
+that pipes MCP JSON-RPC between the extension and Paste's official
+[`@pasteapp/mcp`](https://www.npmjs.com/package/@pasteapp/mcp) server (which
+handles Paste port discovery, OAuth, and transport).
 
 ```
 extension (service worker)
@@ -12,6 +42,8 @@ extension (service worker)
    ▼
 host.mjs  ──spawns──▶  @pasteapp/mcp  ──HTTP──▶  Paste local MCP server
 ```
+
+The rest of this document covers Option B.
 
 ## Requirements
 
