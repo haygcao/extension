@@ -1,0 +1,10 @@
+{
+  "name": "clipboard-history-paste-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome native messaging host bridging the Clipboard History extension to Paste's @pasteapp/mcp server.",
+  "type": "module",
+  "dependencies": {
+    "@pasteapp/mcp": "^0.1.3"
+  }
+}

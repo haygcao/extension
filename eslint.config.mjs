@@ -12,6 +12,9 @@ const gitignorePath = path.resolve(__dirname, ".gitignore");
 
 export default tseslint.config(
   includeIgnoreFile(gitignorePath),
+  // The native messaging host is a standalone Node script, not part of the
+  // extension bundle; it has its own runtime globals and package.
+  { ignores: ["paste-bridge/**"] },
   eslint.configs.recommended,
   tseslint.configs.recommended,
   // Supports Chrome 109.
