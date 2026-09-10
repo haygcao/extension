@@ -2,6 +2,7 @@ import type { PlasmoMessaging } from "@plasmohq/messaging";
 
 import { getClipboardSnapshot, updateClipboardSnapshot } from "~storage/clipboardSnapshot";
 import { getSettings } from "~storage/settings";
+import { mirrorToPaste } from "~utils/paste/mirror";
 import { createEntry } from "~utils/storage";
 
 import { handleUpdateContextMenusRequest } from "./updateContextMenus";
@@ -19,15 +20,30 @@ export const handleCreateEntryRequest = async (body: CreateEntryRequestBody) => 
 
   if (clipboardSnapshot === undefined || body.timestamp > clipboardSnapshot.updatedAt) {
     if (body.content !== clipboardSnapshot?.content) {
+      // If we allow blank items then an entry is always created regardless of what the content
+      // is. If we don't, then only create an entry if the content isn't blank.
+      const shouldCreateEntry =
+        (settings.allowBlankItems || body.content.length > 0) &&
+        (settings.localItemCharacterLimit === null ||
+          body.content.length <= settings.localItemCharacterLimit);
+
       await Promise.all([
         updateClipboardSnapshot(body.content),
-        // If we allow blank items then an entry is always created regardless of what the content
-        // is. If we don't, then only create an entry if the content isn't blank.
-        (settings.allowBlankItems || body.content.length > 0) &&
-          (settings.localItemCharacterLimit === null ||
-            body.content.length <= settings.localItemCharacterLimit) &&
-          createEntry(body.content, settings.storageLocation),
+        shouldCreateEntry && createEntry(body.content, settings.storageLocation),
       ]);
+
+      // Best-effort mirror of the same entry into the Paste for Mac app via its
+      // MCP server. Fire-and-forget: never block or fail clipboard capture.
+      if (shouldCreateEntry && settings.pasteMirrorEnabled) {
+        mirrorToPaste(body.content, {
+          url: settings.pasteMcpUrl,
+          token: settings.pasteMcpToken,
+        }).then((result) => {
+          if (!result.ok) {
+            console.warn("[paste-mirror]", result.error);
+          }
+        });
+      }
 
       handleUpdateContextMenusRequest();
     }

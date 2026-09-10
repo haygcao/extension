@@ -41,3 +41,8 @@ keys.json
 # dev
 /.idea/
 /.letta/
+
+# paste-bridge native messaging host (generated locally by install.sh)
+/paste-bridge/node_modules
+/paste-bridge/package-lock.json
+/paste-bridge/run-host.sh

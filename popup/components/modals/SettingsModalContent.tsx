@@ -12,12 +12,14 @@ import {
   Indicator,
   NumberInput,
   Paper,
+  PasswordInput,
   rem,
   Select,
   Stack,
   Switch,
   Tabs,
   Text,
+  TextInput,
   Title,
   useMantineTheme,
 } from "@mantine/core";
@@ -28,6 +30,7 @@ import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
   IconAppWindow,
+  IconClipboardCheck,
   IconCloud,
   IconDatabase,
   IconDeviceFloppy,
@@ -44,6 +47,10 @@ import { z } from "zod";
 
 import { sendToBackground } from "@plasmohq/messaging";
 
+import type {
+  TestPasteMirrorRequestBody,
+  TestPasteMirrorResponseBody,
+} from "~background/messages/testPasteMirror";
 import type {
   UpdateContextMenusRequestBody,
   UpdateContextMenusResponseBody,
@@ -90,6 +97,9 @@ export const SettingsModalContent = () => {
   const cloudSettings = settingsQuery.data?.settings[0];
 
   const [file, setFile] = useState<File | null>(null);
+  const [pasteTesting, setPasteTesting] = useState(false);
+  const [pasteUrl, setPasteUrl] = useState(settings.pasteMcpUrl);
+  const [pasteToken, setPasteToken] = useState(settings.pasteMcpToken);
 
   const storageForm = useForm<StorageFormValues>({
     defaultValues: {
@@ -157,6 +167,11 @@ export const SettingsModalContent = () => {
           >
             Cloud
           </Tabs.Tab>
+          {process.env.PLASMO_TARGET !== "firefox-mv2" && (
+            <Tabs.Tab value="paste" icon={<IconClipboardCheck size="0.8rem" />}>
+              Paste
+            </Tabs.Tab>
+          )}
         </Tabs.List>
 
         <Tabs.Panel value="general">
@@ -746,6 +761,143 @@ export const SettingsModalContent = () => {
             </form>
           )}
         </Tabs.Panel>
+
+        {process.env.PLASMO_TARGET !== "firefox-mv2" && (
+          <Tabs.Panel value="paste">
+            <Stack p="md">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group align="center" spacing="xs">
+                    <Title order={6}>Mirror to Paste</Title>
+                    <Badge size="xs" color="grape">
+                      Mac
+                    </Badge>
+                  </Group>
+                  <Text fz="xs">
+                    Also send every newly captured item to the{" "}
+                    <Anchor href="https://pasteapp.io" target="_blank">
+                      Paste
+                    </Anchor>{" "}
+                    app via its MCP server.
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={settings.pasteMirrorEnabled}
+                  onChange={async (e) => {
+                    await setSettings({ ...settings, pasteMirrorEnabled: e.target.checked });
+                  }}
+                />
+              </Group>
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+              <Stack spacing="xs">
+                <Stack spacing={0}>
+                  <Title order={6}>MCP Endpoint (LAN)</Title>
+                  <Text fz="xs">
+                    URL of a Streamable-HTTP MCP endpoint reachable from this browser — e.g. an
+                    MCP-bridging service on your Mac at{" "}
+                    <Text span fw={700}>
+                      http://192.168.1.50:8888/mcp/paste
+                    </Text>
+                    . Leave blank to use the local native bridge instead (Paste on the same machine;
+                    see{" "}
+                    <Text span fw={700}>
+                      paste-bridge/README.md
+                    </Text>
+                    ).
+                  </Text>
+                </Stack>
+                <TextInput
+                  size="xs"
+                  placeholder="http://192.168.1.50:8888/mcp/paste"
+                  value={pasteUrl}
+                  onChange={(e) => setPasteUrl(e.currentTarget.value)}
+                />
+                <PasswordInput
+                  size="xs"
+                  placeholder="Bearer token (optional)"
+                  value={pasteToken}
+                  onChange={(e) => setPasteToken(e.currentTarget.value)}
+                />
+              </Stack>
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>Save &amp; Test Connection</Title>
+                  <Text fz="xs">
+                    Save the endpoint, grant network access to it, and send a sample item to verify
+                    the connection.
+                  </Text>
+                </Stack>
+                <Button
+                  size="xs"
+                  loading={pasteTesting}
+                  onClick={async () => {
+                    setPasteTesting(true);
+                    try {
+                      const url = pasteUrl.trim();
+
+                      // A configured HTTP endpoint needs a host permission for
+                      // its origin. Request it here (requires a user gesture),
+                      // then the background fetch is allowed.
+                      if (url.length > 0) {
+                        let origin: string;
+                        try {
+                          origin = `${new URL(url).origin}/*`;
+                        } catch {
+                          notifications.show({
+                            color: "red",
+                            title: "Invalid URL",
+                            message: "Enter a full URL, e.g. http://192.168.1.50:8888/mcp/paste.",
+                          });
+                          return;
+                        }
+
+                        const granted = await chrome.permissions.request({ origins: [origin] });
+                        if (!granted) {
+                          notifications.show({
+                            color: "red",
+                            title: "Permission required",
+                            message: `Access to ${origin} was not granted.`,
+                          });
+                          return;
+                        }
+                      }
+
+                      await setSettings({
+                        ...settings,
+                        pasteMcpUrl: url,
+                        pasteMcpToken: pasteToken,
+                      });
+
+                      const result = await sendToBackground<
+                        TestPasteMirrorRequestBody,
+                        TestPasteMirrorResponseBody
+                      >({ name: "testPasteMirror" });
+
+                      if (result.ok) {
+                        notifications.show({
+                          color: "green",
+                          title: "Connected to Paste",
+                          message: `Sent a test item via "${result.toolUsed}" (${result.transport}).`,
+                        });
+                      } else {
+                        notifications.show({
+                          color: "red",
+                          title: "Could not reach Paste",
+                          message: result.error ?? "Unknown error.",
+                        });
+                      }
+                    } finally {
+                      setPasteTesting(false);
+                    }
+                  }}
+                >
+                  Save &amp; Test
+                </Button>
+              </Group>
+            </Stack>
+          </Tabs.Panel>
+        )}
       </Tabs>
     </Paper>
   );

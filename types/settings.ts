@@ -19,6 +19,9 @@ export const defaultSettings = {
   localItemLimit: null,
   localItemCharacterLimit: null,
   displayMode: DisplayMode.Enum.Popup,
+  pasteMirrorEnabled: false,
+  pasteMcpUrl: "",
+  pasteMcpToken: "",
 };
 
 export const Settings = z
@@ -35,6 +38,16 @@ export const Settings = z
     localItemLimit: z.number().nullable().default(defaultSettings.localItemLimit),
     localItemCharacterLimit: z.number().nullable().default(defaultSettings.localItemCharacterLimit),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
+    // When enabled, every newly captured entry is also mirrored into the Paste
+    // for Mac app via its MCP server.
+    pasteMirrorEnabled: z.boolean().default(defaultSettings.pasteMirrorEnabled),
+    // Optional HTTP(S) MCP endpoint (e.g. a LAN MCP-bridging service on the Mac
+    // like http://192.168.1.50:8888/mcp/paste). When set, mirroring uses this
+    // Streamable-HTTP endpoint directly; when blank, it falls back to the local
+    // native messaging bridge.
+    pasteMcpUrl: z.string().default(defaultSettings.pasteMcpUrl),
+    // Optional bearer token for the HTTP endpoint above.
+    pasteMcpToken: z.string().default(defaultSettings.pasteMcpToken),
   })
   .default(defaultSettings);
 export type Settings = z.infer<typeof Settings>;
