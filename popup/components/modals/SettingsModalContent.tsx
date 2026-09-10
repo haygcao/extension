@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { id } from "@instantdb/react";
 import {
+  Accordion,
   Anchor,
   Badge,
   Box,
@@ -18,6 +18,8 @@ import {
   Switch,
   Tabs,
   Text,
+  TextInput,
+  ThemeIcon,
   Title,
   useMantineTheme,
 } from "@mantine/core";
@@ -28,43 +30,51 @@ import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
   IconAppWindow,
+  IconBrandGoogleDrive,
+  IconBrandOnedrive,
+  IconCheck,
   IconCloud,
   IconDatabase,
   IconDeviceFloppy,
   IconExternalLink,
   IconFileExport,
   IconFileImport,
+  IconKey,
+  IconLanguage,
+  IconPlugConnected,
+  IconServer,
   IconUpload,
-  IconWifiOff,
 } from "@tabler/icons-react";
 import { useAtomValue } from "jotai";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { sendToBackground } from "@plasmohq/messaging";
-
-import type {
-  UpdateContextMenusRequestBody,
-  UpdateContextMenusResponseBody,
-} from "~background/messages/updateContextMenus";
-import type {
-  UpdateTotalItemsBadgeRequestBody,
-  UpdateTotalItemsBadgeResponseBody,
-} from "~background/messages/updateTotalItemsBadge";
 import { ShortcutBadge } from "~popup/components/ShortcutBadge";
 import { useSettingsQuery } from "~popup/hooks/useSettingsQuery";
 import { useSubscriptionsQuery } from "~popup/hooks/useSubscriptionsQuery";
 import { commandsAtom, settingsAtom } from "~popup/states/atoms";
 import { setSettings } from "~storage/settings";
+import {
+  getSyncSettings,
+  setSyncSettings,
+  type SyncSettings,
+} from "~storage/syncSettings";
 import { DisplayMode } from "~types/displayMode";
 import { ItemSortOption } from "~types/itemSortOption";
 import { StorageLocation } from "~types/storageLocation";
-import { Tab } from "~types/tab";
 import { resolveCloudSettings } from "~utils/cloudSettings";
 import db from "~utils/db/react";
-import { getClipboardHistoryIOExport, importFile } from "~utils/importExport";
-import { capitalize } from "~utils/string";
+import {
+  getClipboardHistoryIOExport,
+  getFullBackupExport,
+  importFile,
+} from "~utils/importExport";
+import {
+  authorizeGoogleOAuth,
+  authorizeOneDriveOAuth,
+  createWebDavProvider,
+} from "~utils/sync/provider";
 import { defaultBorderColor, lightOrDark } from "~utils/sx";
 
 const storageSchema = z.object({
@@ -78,18 +88,40 @@ const cloudSchema = z.object({
 });
 type CloudFormValues = z.infer<typeof cloudSchema>;
 
-export const SettingsModalContent = () => {
+const syncSchema = z.object({
+  deviceName: z.string(),
+  enableChromeSync: z.boolean(),
+  enableWebdav: z.boolean(),
+  enableOneDrive: z.boolean(),
+  enableGoogleDrive: z.boolean(),
+  webdavUrl: z.string(),
+  webdavUsername: z.string(),
+  webdavPassword: z.string(),
+  webdavPath: z.string(),
+  oneDriveFolder: z.string(),
+  oneDriveClientId: z.string(),
+  oneDriveClientSecret: z.string(),
+  oneDriveAccessToken: z.string(),
+  googleDriveFolder: z.string(),
+  googleClientId: z.string(),
+  googleClientSecret: z.string(),
+  googleAccessToken: z.string(),
+});
+type SyncFormValues = z.infer<typeof syncSchema>;
+
+export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: string } = {}) => {
   const theme = useMantineTheme();
-  const auth = db.useAuth();
-  const connectionStatus = db.useConnectionStatus();
   const settings = useAtomValue(settingsAtom);
   const commands = useAtomValue(commandsAtom);
   const systemColorScheme = useColorScheme();
-  const subscriptionsQuery = useSubscriptionsQuery();
   const settingsQuery = useSettingsQuery();
-  const cloudSettings = settingsQuery.data?.settings[0];
+  const cloudSettings = (settingsQuery.data?.settings as any[] | undefined)?.[0];
 
   const [file, setFile] = useState<File | null>(null);
+  const [syncDefaults, setSyncDefaults] = useState<SyncFormValues | null>(null);
+  const [testingWebdav, setTestingWebdav] = useState(false);
+  const [authorizingGoogle, setAuthorizingGoogle] = useState(false);
+  const [authorizingOneDrive, setAuthorizingOneDrive] = useState(false);
 
   const storageForm = useForm<StorageFormValues>({
     defaultValues: {
@@ -101,24 +133,173 @@ export const SettingsModalContent = () => {
   });
 
   const cloudForm = useForm<CloudFormValues>({
-    defaultValues: resolveCloudSettings(cloudSettings),
+    defaultValues: resolveCloudSettings(cloudSettings as any),
     mode: "all",
     resolver: zodResolver(cloudSchema),
   });
 
+  const syncForm = useForm<SyncFormValues>({
+    defaultValues: syncDefaults || {
+      deviceName: "设备 A",
+      enableChromeSync: false,
+      enableWebdav: false,
+      enableOneDrive: false,
+      enableGoogleDrive: false,
+      webdavUrl: "",
+      webdavUsername: "",
+      webdavPassword: "",
+      webdavPath: "/openclip-sync.json",
+      oneDriveFolder: "/OpenClipSync",
+      oneDriveClientId: "",
+      oneDriveClientSecret: "",
+      oneDriveAccessToken: "",
+      googleDriveFolder: "/OpenClipSync",
+      googleClientId: "",
+      googleClientSecret: "",
+      googleAccessToken: "",
+    },
+    mode: "all",
+    resolver: zodResolver(syncSchema),
+  });
+
+  useEffect(() => {
+    getSyncSettings().then((s) => {
+      const vals: SyncFormValues = {
+        deviceName: s.deviceName || "设备 A",
+        enableChromeSync: !!s.enableChromeSync,
+        enableWebdav: !!s.enableWebdav,
+        enableOneDrive: !!s.enableOneDrive,
+        enableGoogleDrive: !!s.enableGoogleDrive,
+        webdavUrl: s.webdavUrl || "",
+        webdavUsername: s.webdavUsername || "",
+        webdavPassword: s.webdavPassword || "",
+        webdavPath: s.webdavPath || "/openclip-sync.json",
+        oneDriveFolder: s.oneDriveFolder || "/OpenClipSync",
+        oneDriveClientId: s.oneDriveClientId || "",
+        oneDriveClientSecret: s.oneDriveClientSecret || "",
+        oneDriveAccessToken: s.oneDriveAccessToken || "",
+        googleDriveFolder: s.googleDriveFolder || "/OpenClipSync",
+        googleClientId: s.googleClientId || "",
+        googleClientSecret: s.googleClientSecret || "",
+        googleAccessToken: s.googleAccessToken || "",
+      };
+      setSyncDefaults(vals);
+      syncForm.reset(vals);
+    });
+  }, []);
+
+  const enableWebdav = syncForm.watch("enableWebdav");
+  const enableOneDrive = syncForm.watch("enableOneDrive");
+  const enableGoogleDrive = syncForm.watch("enableGoogleDrive");
+
+  const handleTestWebdav = async () => {
+    const vals = syncForm.getValues();
+    if (!vals.webdavUrl || !vals.webdavUsername || !vals.webdavPassword) {
+      notifications.show({
+        color: "yellow",
+        title: "请填写完整",
+        message: "请先填写 WebDAV 服务器 URL、账号及密码",
+      });
+      return;
+    }
+    setTestingWebdav(true);
+    try {
+      const p = createWebDavProvider(
+        vals.webdavUrl,
+        vals.webdavUsername,
+        vals.webdavPassword,
+        vals.webdavPath || "/openclip-sync.json",
+      );
+      await p.pull();
+      notifications.show({
+        color: "green",
+        title: "WebDAV 连接成功",
+        message: "服务器验证通过，可正常双向同步！",
+      });
+    } catch (e: any) {
+      notifications.show({
+        color: "red",
+        title: "WebDAV 连接失败",
+        message: e?.message || "无法连接到 WebDAV 服务器，请检查配置",
+      });
+    } finally {
+      setTestingWebdav(false);
+    }
+  };
+
+  const handleAuthGoogle = async () => {
+    const clientId = syncForm.getValues("googleClientId");
+    if (!clientId) {
+      notifications.show({
+        color: "yellow",
+        title: "缺少 Client ID",
+        message: "请先在下方输入框中填写 Google Cloud OAuth Client ID",
+      });
+      return;
+    }
+    setAuthorizingGoogle(true);
+    try {
+      const token = await authorizeGoogleOAuth(clientId);
+      syncForm.setValue("googleAccessToken", token, { shouldDirty: true });
+      notifications.show({
+        color: "green",
+        title: "Google Drive 授权成功",
+        message: "已成功获取访问令牌，请点击下方【保存设置】",
+      });
+    } catch (e: any) {
+      notifications.show({
+        color: "red",
+        title: "Google 授权失败",
+        message: e?.message || "未能完成 Google 授权",
+      });
+    } finally {
+      setAuthorizingGoogle(false);
+    }
+  };
+
+  const handleAuthOneDrive = async () => {
+    const clientId = syncForm.getValues("oneDriveClientId");
+    if (!clientId) {
+      notifications.show({
+        color: "yellow",
+        title: "缺少 Client ID",
+        message: "请先在下方输入框中填写 Azure/OneDrive 应用程序 Client ID",
+      });
+      return;
+    }
+    setAuthorizingOneDrive(true);
+    try {
+      const token = await authorizeOneDriveOAuth(clientId);
+      syncForm.setValue("oneDriveAccessToken", token, { shouldDirty: true });
+      notifications.show({
+        color: "green",
+        title: "OneDrive 授权成功",
+        message: "已成功获取微软访问令牌，请点击下方【保存设置】",
+      });
+    } catch (e: any) {
+      notifications.show({
+        color: "red",
+        title: "OneDrive 授权失败",
+        message: e?.message || "未能完成微软授权",
+      });
+    } finally {
+      setAuthorizingOneDrive(false);
+    }
+  };
+
   return (
     <Paper p="md">
       <Group align="center" position="apart" mb="xs">
-        <Title order={5}>Settings</Title>
+        <Title order={5}>设置 (Settings)</Title>
         <CloseButton onClick={() => modals.closeAll()} />
       </Group>
-      <Tabs defaultValue="general">
+      <Tabs defaultValue={defaultTab}>
         <Tabs.List>
           <Tabs.Tab value="general" icon={<IconAdjustmentsHorizontal size="0.8rem" />}>
-            General
+            常规 (General)
           </Tabs.Tab>
           <Tabs.Tab value="interface" icon={<IconAppWindow size="0.8rem" />}>
-            Interface
+            界面 (Interface)
           </Tabs.Tab>
           <Tabs.Tab
             value="storage"
@@ -135,10 +316,10 @@ export const SettingsModalContent = () => {
               </Indicator>
             }
           >
-            Storage
+            存储容量 (Storage)
           </Tabs.Tab>
           <Tabs.Tab value="import-export" icon={<IconDeviceFloppy size="0.8rem" />}>
-            Import / Export
+            导入 / 导出 (Backup)
           </Tabs.Tab>
           <Tabs.Tab
             value="cloud"
@@ -146,7 +327,7 @@ export const SettingsModalContent = () => {
               <Indicator
                 color={lightOrDark(theme, "orange", "yellow")}
                 size={8}
-                disabled={!cloudForm.formState.isDirty}
+                disabled={!syncForm.formState.isDirty}
                 offset={1}
               >
                 <Box mt={rem(1)}>
@@ -155,17 +336,50 @@ export const SettingsModalContent = () => {
               </Indicator>
             }
           >
-            Cloud
+            多端云同步 (Cloud)
           </Tabs.Tab>
         </Tabs.List>
 
+        {/* 1. 常规选项卡 */}
         <Tabs.Panel value="general">
           <Stack p="md">
+            {/* 界面语言选项 */}
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Extension Activation Shortcut</Title>
+                <Title order={6}>界面语言 / Language</Title>
+                <Text fz="xs" color="dimmed">
+                  选择插件展示语言（默认跟随浏览器语言）。
+                </Text>
+              </Stack>
+              <Select
+                value={settings.language || "auto"}
+                onChange={async (newLang) => {
+                  if (newLang) await setSettings({ ...settings, language: newLang });
+                }}
+                data={[
+                  { value: "auto", label: "自动跟随浏览器 (Auto)" },
+                  { value: "zh_CN", label: "简体中文 (Simplified Chinese)" },
+                  { value: "zh_TW", label: "繁體中文 (Traditional Chinese)" },
+                  { value: "en", label: "English" },
+                  { value: "ja", label: "日本語 (Japanese)" },
+                  { value: "de", label: "Deutsch (German)" },
+                  { value: "es", label: "Español (Spanish)" },
+                  { value: "fr", label: "Français (French)" },
+                  { value: "ru", label: "Русский (Russian)" },
+                ]}
+                size="xs"
+                withinPortal
+              />
+            </Group>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 快捷键配置 */}
+            <Group align="flex-start" spacing="md" position="apart" noWrap>
+              <Stack spacing={0}>
+                <Title order={6}>扩展激活快捷键</Title>
                 <Group align="center" spacing={4}>
-                  <Text fz="xs">Press</Text>
+                  <Text fz="xs">按快捷键</Text>
                   <ShortcutBadge
                     shortcut={
                       commands.find(
@@ -174,10 +388,10 @@ export const SettingsModalContent = () => {
                           (process.env.PLASMO_TARGET === "firefox-mv2"
                             ? "_execute_browser_action"
                             : "_execute_action"),
-                      )?.shortcut || "Not set"
+                      )?.shortcut || "未设置"
                     }
                   />
-                  <Text fz="xs">to quickly open the extension.</Text>
+                  <Text fz="xs">可快速唤起剪贴板管理器。</Text>
                 </Group>
               </Stack>
               <Button
@@ -190,36 +404,39 @@ export const SettingsModalContent = () => {
                         ? "https://support.mozilla.org/en-US/kb/manage-extension-shortcuts-firefox"
                         : "chrome://extensions/shortcuts",
                   });
-
-                  // TODO: Move isSidePanel and isFloatingPopup to jotai and use it here.
                   if (!window.location.search.includes("ref=")) {
                     window.close();
                   }
                 }}
               >
-                Configure
+                配置快捷键
               </Button>
             </Group>
+
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 空白内容记录 */}
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Blank Items</Title>
-                <Text fz="xs">Allow blank items to be added to the clipboard history.</Text>
+                <Title order={6}>允许保存空白内容</Title>
+                <Text fz="xs" color="dimmed">是否将只包含空格/换行的空白剪贴板加入历史记录。</Text>
               </Stack>
               <Switch
                 checked={settings.allowBlankItems}
                 onChange={async (e) => {
                   const checked = e.target.checked;
-
                   await setSettings({ ...settings, allowBlankItems: checked });
                 }}
               />
             </Group>
+
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 排序方式 */}
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Sort Items By</Title>
-                <Text fz="xs">Select how items are sorted.</Text>
+                <Title order={6}>列表排序方式</Title>
+                <Text fz="xs" color="dimmed">置顶条目始终固定于最上方，其余条目按选定规则排序。</Text>
               </Stack>
               <Select
                 value={settings.sortItemsBy}
@@ -231,186 +448,61 @@ export const SettingsModalContent = () => {
                   })
                 }
                 data={[
-                  { value: ItemSortOption.Enum.DateCreated, label: "Date Created" },
-                  { value: ItemSortOption.Enum.DateLastCopied, label: "Date Last Copied" },
+                  { value: ItemSortOption.Enum.DateCreated, label: "按创建时间 (Date Created)" },
+                  { value: ItemSortOption.Enum.DateLastCopied, label: "按最近复制时间 (Date Last Copied)" },
                 ]}
                 size="xs"
                 withinPortal
-              />
-            </Group>
-            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-            <Group align="flex-start" spacing="md" position="apart" noWrap>
-              <Stack spacing={0}>
-                <Group align="center" spacing="xs">
-                  <Title order={6}>Default Storage Location</Title>
-                  <Badge size="xs" color="cyan">
-                    Pro
-                  </Badge>
-                </Group>
-                <Text fz="xs">
-                  Select where new items are stored. When offline or not subscribed to Pro, this
-                  setting is ignored and new items will be stored locally.
-                </Text>
-              </Stack>
-              <Select
-                value={settings.storageLocation}
-                onChange={(newStorageLocation) =>
-                  newStorageLocation &&
-                  setSettings({
-                    ...settings,
-                    storageLocation: StorageLocation.parse(newStorageLocation),
-                  })
-                }
-                data={[
-                  { value: StorageLocation.Enum.Local, label: StorageLocation.Enum.Local },
-                  { value: StorageLocation.Enum.Cloud, label: StorageLocation.Enum.Cloud },
-                ]}
-                size="xs"
-                withinPortal
-                disabled={!auth.user}
               />
             </Group>
           </Stack>
         </Tabs.Panel>
 
+        {/* 2. 界面选项卡 */}
         <Tabs.Panel value="interface">
           <Stack p="md">
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Total Items Badge</Title>
-                <Text fz="xs">
-                  Show number of items in the clipboard history on the extension icon.
-                </Text>
+                <Title order={6}>扩展图标显示条目数量</Title>
+                <Text fz="xs" color="dimmed">在浏览器工具栏图标角标上实时显示已记录的条目数。</Text>
               </Stack>
               <Switch
                 checked={settings.totalItemsBadge}
                 onChange={async (e) => {
                   const checked = e.target.checked;
-
                   await setSettings({ ...settings, totalItemsBadge: checked });
-
-                  await sendToBackground<
-                    UpdateTotalItemsBadgeRequestBody,
-                    UpdateTotalItemsBadgeResponseBody
-                  >({
-                    name: "updateTotalItemsBadge",
-                  });
                 }}
               />
             </Group>
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Paste From Context Menu</Title>
-                <Text fz="xs">Enable pasting clipboard history items from the context menu.</Text>
+                <Title order={6}>右键菜单粘贴快捷入口</Title>
+                <Text fz="xs" color="dimmed">在网页右键菜单中显示最近复制的条目，便于快速选择粘贴。</Text>
               </Stack>
               <Switch
                 checked={settings.pasteFromContextMenu}
                 onChange={async (e) => {
                   const checked = e.target.checked;
-
                   await setSettings({ ...settings, pasteFromContextMenu: checked });
-
-                  await sendToBackground<
-                    UpdateContextMenusRequestBody,
-                    UpdateContextMenusResponseBody
-                  >({
-                    name: "updateContextMenus",
-                  });
                 }}
               />
             </Group>
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Changelog Indicator</Title>
-                <Text fz="xs">
-                  Display an indicator on the changelog button if the extension was updated since
-                  the changelog was last viewed.
-                </Text>
-              </Stack>
-              <Switch
-                checked={settings.changelogIndicator}
-                onChange={async (e) => {
-                  const checked = e.target.checked;
-
-                  await setSettings({ ...settings, changelogIndicator: checked });
-                }}
-              />
-            </Group>
-            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-            <Group align="flex-start" spacing="md" position="apart" noWrap>
-              <Stack spacing={0}>
-                <Title order={6}>Default Tab</Title>
-                <Text fz="xs">Select the tab shown when the extension is opened.</Text>
-              </Stack>
-              <Select
-                value={settings.defaultTab}
-                onChange={(newDefaultTab) =>
-                  newDefaultTab &&
-                  setSettings({ ...settings, defaultTab: Tab.parse(newDefaultTab) })
-                }
-                data={[
-                  { value: Tab.Enum.All, label: Tab.Enum.All },
-                  { value: Tab.Enum.Favorites, label: Tab.Enum.Favorites },
-                  { value: Tab.Enum.Cloud, label: Tab.Enum.Cloud },
-                ]}
-                size="xs"
-                withinPortal
-              />
-            </Group>
-            {process.env.PLASMO_TARGET !== "firefox-mv2" && (
-              <>
-                <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-                <Group align="flex-start" spacing="md" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Title order={6}>Display Mode</Title>
-                    <Text fz="xs">
-                      Select how the extension opens when clicking the icon. Changing this will
-                      close the extension.
-                    </Text>
-                  </Stack>
-                  <Select
-                    value={settings.displayMode}
-                    onChange={async (newDisplayMode) => {
-                      if (newDisplayMode && newDisplayMode !== settings.displayMode) {
-                        await setSettings({
-                          ...settings,
-                          displayMode: DisplayMode.parse(newDisplayMode),
-                        });
-
-                        // Notify background script to update display mode configuration
-                        await sendToBackground({
-                          name: "updateDisplayMode",
-                        });
-
-                        // Close the extension to apply the new display mode
-                        window.close();
-                      }
-                    }}
-                    data={[
-                      { value: DisplayMode.Enum.Popup, label: "Popup" },
-                      { value: DisplayMode.Enum.SidePanel, label: "Side Panel" },
-                    ]}
-                    size="xs"
-                    withinPortal
-                  />
-                </Group>
-              </>
-            )}
-            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-            <Group align="flex-start" spacing="md" position="apart" noWrap>
-              <Stack spacing={0}>
-                <Title order={6}>Theme</Title>
-                <Text fz="xs">Select the extension's color scheme.</Text>
+                <Title order={6}>主题模式 (Theme)</Title>
+                <Text fz="xs" color="dimmed">选择浅色、暗黑模式或自动跟随系统。</Text>
               </Stack>
               <Select
                 value={settings.themeV2}
-                onChange={(theme) => theme && setSettings({ ...settings, themeV2: theme })}
+                onChange={async (newTheme) => {
+                  if (newTheme) await setSettings({ ...settings, themeV2: newTheme });
+                }}
                 data={[
-                  { value: "system", label: `System (${capitalize(systemColorScheme)})` },
-                  { value: "light", label: "Light" },
-                  { value: "dark", label: "Dark" },
+                  { value: "system", label: "跟随系统 (System)" },
+                  { value: "light", label: "浅色模式 (Light)" },
+                  { value: "dark", label: "暗黑模式 (Dark)" },
                 ]}
                 size="xs"
                 withinPortal
@@ -419,27 +511,26 @@ export const SettingsModalContent = () => {
           </Stack>
         </Tabs.Panel>
 
+        {/* 3. 存储容量选项卡 */}
         <Tabs.Panel value="storage">
           <form
-            onSubmit={storageForm.handleSubmit(
-              async ({ localItemLimit, localItemCharacterLimit }) => {
-                await setSettings({ ...settings, localItemLimit, localItemCharacterLimit });
-                notifications.show({
-                  color: "green",
-                  title: "Success",
-                  message: "Changes were successfully saved.",
-                });
-                storageForm.reset({ localItemLimit, localItemCharacterLimit });
-              },
-            )}
+            onSubmit={storageForm.handleSubmit(async (values) => {
+              await setSettings({ ...settings, ...values });
+              notifications.show({
+                color: "green",
+                title: "成功",
+                message: "存储设置已保存",
+              });
+              storageForm.reset(values);
+            })}
           >
             <Stack p="md">
               <Stack spacing="xs">
-                <Group align="flex-start" position="apart" noWrap>
+                <Group align="flex-start" spacing="md" position="apart" noWrap>
                   <Stack spacing={0}>
-                    <Title order={6}>Item Limit</Title>
-                    <Text fz="xs">
-                      Set the maximum number of non-favorited items that will be stored locally.
+                    <Title order={6}>本地条目保存数量上限</Title>
+                    <Text fz="xs" color="dimmed">
+                      超出上限时将自动淘汰最早未置顶且未收藏的条目。置顶与收藏项永久免淘汰。
                     </Text>
                   </Stack>
                   <Switch
@@ -447,12 +538,9 @@ export const SettingsModalContent = () => {
                     onChange={(e) => {
                       storageForm.setValue(
                         "localItemLimit",
-                        e.target.checked ? settings.localItemLimit || 150 : null,
-                        {
-                          shouldDirty: true,
-                        },
+                        e.target.checked ? settings.localItemLimit || 1000 : null,
+                        { shouldDirty: true },
                       );
-                      storageForm.trigger();
                     }}
                   />
                 </Group>
@@ -464,46 +552,6 @@ export const SettingsModalContent = () => {
                       {...field}
                       value={field.value === null ? "" : field.value}
                       onChange={(value) => field.onChange(value === "" ? 0 : value)}
-                      error={storageForm.formState.errors.localItemLimit?.message}
-                      disabled={field.value === null}
-                      size="xs"
-                    />
-                  )}
-                />
-              </Stack>
-              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-              <Stack spacing="xs">
-                <Group align="flex-start" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Title order={6}>Item Character Limit</Title>
-                    <Text fz="xs">
-                      Set the maximum number of characters an item may have before it's ignored by
-                      the clipboard monitor and not added to the clipboard history.
-                    </Text>
-                  </Stack>
-                  <Switch
-                    checked={storageForm.watch("localItemCharacterLimit") !== null}
-                    onChange={(e) => {
-                      storageForm.setValue(
-                        "localItemCharacterLimit",
-                        e.target.checked ? settings.localItemCharacterLimit || 25000 : null,
-                        {
-                          shouldDirty: true,
-                        },
-                      );
-                      storageForm.trigger();
-                    }}
-                  />
-                </Group>
-                <Controller
-                  name="localItemCharacterLimit"
-                  control={storageForm.control}
-                  render={({ field }) => (
-                    <NumberInput
-                      {...field}
-                      value={field.value === null ? "" : field.value}
-                      onChange={(value) => field.onChange(value === "" ? 0 : value)}
-                      error={storageForm.formState.errors.localItemCharacterLimit?.message}
                       disabled={field.value === null}
                       size="xs"
                     />
@@ -511,30 +559,15 @@ export const SettingsModalContent = () => {
                 />
               </Stack>
               <Group align="center" position="apart">
-                <Text
-                  size="xs"
-                  color={lightOrDark(theme, "orange", "yellow")}
-                  display="flex"
-                  align="center"
-                >
-                  {storageForm.formState.isDirty && (
-                    <>
-                      <IconAlertTriangle size="1.125rem" />
-                      <Text ml={4}>You have unsaved changes.</Text>
-                    </>
-                  )}
+                <Text size="xs" color={lightOrDark(theme, "orange", "yellow")}>
+                  {storageForm.formState.isDirty && "你有未保存的更改"}
                 </Text>
                 <Group align="center" spacing="xs">
-                  <Button
-                    size="xs"
-                    variant="subtle"
-                    disabled={!storageForm.formState.isDirty}
-                    onClick={() => storageForm.reset()}
-                  >
-                    Reset
+                  <Button size="xs" variant="subtle" disabled={!storageForm.formState.isDirty} onClick={() => storageForm.reset()}>
+                    重置
                   </Button>
                   <Button size="xs" disabled={!storageForm.formState.isDirty} type="submit">
-                    Save
+                    保存
                   </Button>
                 </Group>
               </Group>
@@ -542,23 +575,15 @@ export const SettingsModalContent = () => {
           </form>
         </Tabs.Panel>
 
+        {/* 4. 导入 / 导出备份选项卡 */}
         <Tabs.Panel value="import-export">
-          <Stack p="md">
+          <Stack p="md" spacing="md">
+            {/* 导入 */}
             <Stack spacing="xs">
               <Stack spacing={0}>
-                <Title order={6}>Import</Title>
-                <Text fz="xs">
-                  Select a file to import items from. Only files exported from this extension and
-                  the
-                  <> </>
-                  <Anchor
-                    href="https://chromewebstore.google.com/detail/clipboard-history-pro-bes/ajiejmhbejpdgkkigpddefnjmgcbkenk"
-                    target="_blank"
-                  >
-                    old Clipboard History Pro
-                  </Anchor>
-                  <> </>
-                  are supported.
+                <Title order={6}>恢复 / 导入备份</Title>
+                <Text fz="xs" color="dimmed">
+                  支持恢复 OpenClip Sync 全量配置文件（含 WebDAV 密码、网盘配置及所有剪贴板记录），以及兼容旧版导出的 JSON 文件。
                 </Text>
               </Stack>
               <Group align="center" spacing="xs" noWrap>
@@ -568,8 +593,7 @@ export const SettingsModalContent = () => {
                   icon={<IconUpload size="0.8rem" />}
                   size="xs"
                   w="100%"
-                  // https://github.com/mantinedev/mantine/issues/5401#issuecomment-1858711964
-                  {...{ placeholder: "Select a file" }}
+                  {...{ placeholder: "选择备份 JSON 文件" }}
                 />
                 <Button
                   leftIcon={<IconFileImport size="1rem" />}
@@ -579,172 +603,463 @@ export const SettingsModalContent = () => {
                     if (file !== null) {
                       try {
                         await importFile(file);
-
                         notifications.show({
                           color: "green",
-                          title: "Success",
-                          message: "Items were successfully imported from the selected file.",
+                          title: "导入成功",
+                          message: "已成功恢复备份中的所有数据与配置！",
                         });
-
                         setFile(null);
                       } catch (e) {
-                        console.log(e);
-
                         notifications.show({
                           color: "red",
-                          title: "Error",
-                          message:
-                            "The selected file could not be processed. Please try again with another file.",
+                          title: "导入失败",
+                          message: "所选文件格式不正确或解析失败，请检查后重试。",
                         });
                       }
                     }
                   }}
                 >
-                  Import
+                  开始恢复
                 </Button>
               </Group>
             </Stack>
+
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 导出 */}
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0}>
-                <Title order={6}>Export</Title>
-                <Text fz="xs">
-                  Back up or transfer your clipboard history by exporting it to a file.
+                <Title order={6}>全量导出备份 (推荐)</Title>
+                <Text fz="xs" color="dimmed">
+                  导出包含全部剪贴板历史、标签分类、置顶/收藏状态、WebDAV 账号密码及网盘 OAuth 配置的完整备份包。
                 </Text>
               </Stack>
               <Button
                 leftIcon={<IconFileExport size="1rem" />}
                 size="xs"
+                variant="filled"
                 onClick={async () => {
+                  const backup = await getFullBackupExport();
                   const a = document.createElement("a");
                   a.href = window.URL.createObjectURL(
-                    new Blob([JSON.stringify(await getClipboardHistoryIOExport())], {
-                      type: "text/plain",
-                    }),
+                    new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
                   );
-                  a.download = `clipboard-history-io-export-${new Date().toISOString()}.json`;
+                  a.download = `openclip-sync-full-backup-${new Date().toISOString().slice(0, 10)}.json`;
                   document.body.appendChild(a);
                   a.click();
                   document.body.removeChild(a);
                 }}
               >
-                Export
+                导出全量备份
+              </Button>
+            </Group>
+
+            <Group align="flex-start" spacing="md" position="apart" noWrap>
+              <Stack spacing={0}>
+                <Title order={6}>导出纯剪贴板数据</Title>
+                <Text fz="xs" color="dimmed">
+                  仅导出纯文本剪贴板历史列表，不包含任何账户密码与同步配置。
+                </Text>
+              </Stack>
+              <Button
+                leftIcon={<IconFileExport size="1rem" />}
+                size="xs"
+                variant="default"
+                onClick={async () => {
+                  const a = document.createElement("a");
+                  a.href = window.URL.createObjectURL(
+                    new Blob([JSON.stringify(await getClipboardHistoryIOExport(), null, 2)], {
+                      type: "application/json",
+                    }),
+                  );
+                  a.download = `openclip-sync-entries-${new Date().toISOString().slice(0, 10)}.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                }}
+              >
+                导出纯数据
               </Button>
             </Group>
           </Stack>
         </Tabs.Panel>
 
+        {/* 5. 多端云同步选项卡 */}
         <Tabs.Panel value="cloud">
-          {auth.user && connectionStatus === "closed" ? (
-            <Stack align="center" spacing="xs" p="xl">
-              <IconWifiOff size="1.125rem" />
-              <Title order={4}>You're Offline</Title>
-              <Text size="sm" align="center">
-                Connect to the internet to access cloud settings.
-              </Text>
-            </Stack>
-          ) : !subscriptionsQuery.data?.subscriptions.length ? (
-            <Stack align="center" spacing="xs" p="xl">
-              <IconCloud size="1.125rem" />
-              <Title order={4}>Get Started with Pro</Title>
-              <Text size="sm" align="center">
-                Subscribe to Clipboard History IO Pro to access cloud settings.
-              </Text>
-              <Button
-                size="xs"
-                component="a"
-                href={chrome.runtime.getURL("/tabs/sign-in.html")}
-                target="_blank"
-              >
-                Get Started
-              </Button>
-            </Stack>
-          ) : (
-            <form
-              onSubmit={cloudForm.handleSubmit(async ({ cloudItemLimit }) => {
-                await db.transact(
-                  db.tx.settings[cloudSettings?.id || id()]!.update({
-                    cloudItemLimit,
-                  }).link({ $user: auth.user?.id }),
-                );
-                notifications.show({
-                  color: "green",
-                  title: "Success",
-                  message: "Changes were successfully saved.",
-                });
-                cloudForm.reset({ cloudItemLimit });
-              })}
-            >
-              <Stack p="md">
-                <Stack spacing="xs">
-                  <Group align="flex-start" position="apart" noWrap>
-                    <Stack spacing={0}>
-                      <Title order={6}>Cloud Item Limit</Title>
-                      <Text fz="xs">
-                        Set the maximum number of non-favorited items that will be stored in the
-                        cloud.
-                      </Text>
-                    </Stack>
-                    <Switch
-                      checked={cloudForm.watch("cloudItemLimit") !== null}
-                      onChange={(e) => {
-                        cloudForm.setValue(
-                          "cloudItemLimit",
-                          e.target.checked ? cloudSettings?.cloudItemLimit || 1000 : null,
-                          {
-                            shouldDirty: true,
-                          },
-                        );
-                        cloudForm.trigger();
-                      }}
-                    />
-                  </Group>
+          <form
+            onSubmit={syncForm.handleSubmit(async (values) => {
+              await setSyncSettings(values);
+              notifications.show({
+                color: "green",
+                title: "成功",
+                message: "多端同步设置已保存",
+              });
+              syncForm.reset(values);
+            })}
+          >
+            <Stack p="md" spacing="md">
+              {/* 设备名称 */}
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0} sx={{ flex: 1 }}>
+                  <Title order={6}>设备名称 / Device Name</Title>
+                  <Text fz="xs" color="dimmed">
+                    设置当前设备的标识名称（如：设备 A、办公电脑、MacBook 等），用于多端区分与同步状态追踪。
+                  </Text>
+                </Stack>
+                <Controller
+                  name="deviceName"
+                  control={syncForm.control}
+                  render={({ field }) => (
+                    <TextInput {...field} size="xs" w={180} placeholder="设备 A" />
+                  )}
+                />
+              </Group>
+
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+              {/* 1. Chrome Sync */}
+              <Stack spacing="xs">
+                <Group align="center" position="apart" noWrap>
+                  <Stack spacing={0}>
+                    <Group spacing="xs" align="center">
+                      <Title order={6}>Chrome 内置同步 (Chrome Sync)</Title>
+                      <Badge size="xs" color="blue" variant="light">
+                        免配置
+                      </Badge>
+                    </Group>
+                    <Text fz="xs" color="dimmed">
+                      通过 Chrome 账号跨设备自动静默同步。单项配额约 100KB，适合多台电脑间快速传输文本。
+                    </Text>
+                  </Stack>
                   <Controller
-                    name="cloudItemLimit"
-                    control={cloudForm.control}
+                    name="enableChromeSync"
+                    control={syncForm.control}
                     render={({ field }) => (
-                      <NumberInput
-                        {...field}
-                        value={field.value === null ? "" : field.value}
-                        onChange={(value) => field.onChange(value === "" ? 0 : value)}
-                        error={cloudForm.formState.errors.cloudItemLimit?.message}
-                        disabled={field.value === null}
-                        size="xs"
+                      <Switch
+                        size="md"
+                        color="indigo.5"
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.currentTarget.checked)}
                       />
                     )}
                   />
-                </Stack>
-                <Group align="center" position="apart">
-                  <Text
-                    size="xs"
-                    color={lightOrDark(theme, "orange", "yellow")}
-                    display="flex"
-                    align="center"
-                  >
-                    {cloudForm.formState.isDirty && (
-                      <>
-                        <IconAlertTriangle size="1.125rem" />
-                        <Text ml={4}>You have unsaved changes.</Text>
-                      </>
-                    )}
-                  </Text>
-                  <Group align="center" spacing="xs">
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      disabled={!cloudForm.formState.isDirty}
-                      onClick={() => cloudForm.reset()}
-                    >
-                      Reset
-                    </Button>
-                    <Button size="xs" disabled={!cloudForm.formState.isDirty} type="submit">
-                      Save
-                    </Button>
-                  </Group>
                 </Group>
               </Stack>
-            </form>
-          )}
+
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+              {/* 2. WebDAV Sync */}
+              <Stack spacing="xs">
+                <Group align="center" position="apart" noWrap>
+                  <Stack spacing={0}>
+                    <Group spacing="xs" align="center">
+                      <Title order={6}>WebDAV 云同步</Title>
+                      <Badge size="xs" color="teal" variant="light">
+                        私有云推荐
+                      </Badge>
+                    </Group>
+                    <Text fz="xs" color="dimmed">
+                      支持坚果云、Nextcloud、群晖 Synology、自建 WebDAV 等任意标准 WebDAV 服务端。
+                    </Text>
+                  </Stack>
+                  <Controller
+                    name="enableWebdav"
+                    control={syncForm.control}
+                    render={({ field }) => (
+                      <Switch
+                        size="md"
+                        color="indigo.5"
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.currentTarget.checked)}
+                      />
+                    )}
+                  />
+                </Group>
+
+                {enableWebdav && (
+                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                    <Stack spacing="xs">
+                      <Controller
+                        name="webdavUrl"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="服务器 URL (Server URL)"
+                            placeholder="https://dav.jianguoyun.com/dav/"
+                          />
+                        )}
+                      />
+                      <Group grow>
+                        <Controller
+                          name="webdavUsername"
+                          control={syncForm.control}
+                          render={({ field }) => (
+                            <TextInput
+                              {...field}
+                              size="xs"
+                              label="账号 / 邮箱 (Username)"
+                              placeholder="account@example.com"
+                            />
+                          )}
+                        />
+                        <Controller
+                          name="webdavPassword"
+                          control={syncForm.control}
+                          render={({ field }) => (
+                            <TextInput
+                              {...field}
+                              size="xs"
+                              type="password"
+                              label="密码 / 应用授权码 (Password / Token)"
+                              placeholder="••••••••"
+                            />
+                          )}
+                        />
+                      </Group>
+                      <Controller
+                        name="webdavPath"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="远端保存文件路径 (Remote Path)"
+                            placeholder="/openclip-sync.json"
+                          />
+                        )}
+                      />
+                      <Group position="right" pt={4}>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="teal"
+                          leftIcon={<IconPlugConnected size="0.85rem" />}
+                          loading={testingWebdav}
+                          onClick={handleTestWebdav}
+                        >
+                          测试 WebDAV 连接
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Paper>
+                )}
+              </Stack>
+
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+              {/* 3. Microsoft OneDrive */}
+              <Stack spacing="xs">
+                <Group align="center" position="apart" noWrap>
+                  <Stack spacing={0}>
+                    <Group spacing="xs" align="center">
+                      <Title order={6}>Microsoft OneDrive 同步</Title>
+                      <Badge size="xs" color="cyan" variant="light">
+                        OneDrive
+                      </Badge>
+                    </Group>
+                    <Text fz="xs" color="dimmed">
+                      通过 Microsoft OneDrive 个人/企业网盘同步剪贴板记录。
+                    </Text>
+                  </Stack>
+                  <Controller
+                    name="enableOneDrive"
+                    control={syncForm.control}
+                    render={({ field }) => (
+                      <Switch
+                        size="md"
+                        color="indigo.5"
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.currentTarget.checked)}
+                      />
+                    )}
+                  />
+                </Group>
+
+                {enableOneDrive && (
+                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                    <Stack spacing="xs">
+                      <Controller
+                        name="oneDriveFolder"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="同步目录 (Folder Path)"
+                            placeholder="/OpenClipSync"
+                          />
+                        )}
+                      />
+                      <Controller
+                        name="oneDriveClientId"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="应用程序 (Client) ID"
+                            placeholder="Azure Portal 注册的应用 Client ID"
+                          />
+                        )}
+                      />
+                      <Controller
+                        name="oneDriveAccessToken"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="访问令牌 (Access Token)"
+                            placeholder="点击下方按钮自动获取或手动填入 Token"
+                          />
+                        )}
+                      />
+                      <Group position="apart" pt={4}>
+                        <Text fz={11} color="dimmed">
+                          重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
+                        </Text>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="cyan"
+                          leftIcon={<IconBrandOnedrive size="0.85rem" />}
+                          loading={authorizingOneDrive}
+                          onClick={handleAuthOneDrive}
+                        >
+                          点击一键 OAuth 授权登录
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Paper>
+                )}
+              </Stack>
+
+              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+              {/* 4. Google Drive */}
+              <Stack spacing="xs">
+                <Group align="center" position="apart" noWrap>
+                  <Stack spacing={0}>
+                    <Group spacing="xs" align="center">
+                      <Title order={6}>Google Drive 云端硬盘同步</Title>
+                      <Badge size="xs" color="yellow" variant="light">
+                        Google Drive
+                      </Badge>
+                    </Group>
+                    <Text fz="xs" color="dimmed">
+                      通过 Google Drive 个人云端硬盘同步剪贴板记录。
+                    </Text>
+                  </Stack>
+                  <Controller
+                    name="enableGoogleDrive"
+                    control={syncForm.control}
+                    render={({ field }) => (
+                      <Switch
+                        size="md"
+                        color="indigo.5"
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.currentTarget.checked)}
+                      />
+                    )}
+                  />
+                </Group>
+
+                {enableGoogleDrive && (
+                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                    <Stack spacing="xs">
+                      <Controller
+                        name="googleDriveFolder"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="同步目录 (Folder Path)"
+                            placeholder="/OpenClipSync"
+                          />
+                        )}
+                      />
+                      <Controller
+                        name="googleClientId"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="Google Cloud OAuth Client ID"
+                            placeholder="例如: xxxxxxxx.apps.googleusercontent.com"
+                          />
+                        )}
+                      />
+                      <Controller
+                        name="googleAccessToken"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="访问令牌 (Access Token)"
+                            placeholder="点击下方按钮自动获取或手动填入 Token"
+                          />
+                        )}
+                      />
+                      <Group position="apart" pt={4}>
+                        <Text fz={11} color="dimmed">
+                          重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
+                        </Text>
+                        <Button
+                          size="xs"
+                          variant="light"
+                          color="yellow"
+                          leftIcon={<IconBrandGoogleDrive size="0.85rem" />}
+                          loading={authorizingGoogle}
+                          onClick={handleAuthGoogle}
+                        >
+                          点击一键 OAuth 授权登录
+                        </Button>
+                      </Group>
+
+                      <Accordion variant="separated" radius="xs" chevronPosition="right">
+                        <Accordion.Item value="guide">
+                          <Accordion.Control>
+                            <Text fz="xs" color="dimmed">
+                              📖 查看如何免费申请 Google OAuth Client ID 简易步骤
+                            </Text>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <Stack spacing={4} fz={11} color="dimmed">
+                              <Text>1. 访问 <Anchor href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</Anchor> 并新建一个项目。</Text>
+                              <Text>2. 前往【API 和服务】→【库】，搜索并启用 <b>Google Drive API</b>。</Text>
+                              <Text>3. 进入【OAuth 同意屏幕】，用户类型选择“外部”，填写应用名称与邮箱。</Text>
+                              <Text>4. 进入【凭据】→【创建凭据】→【OAuth 客户端 ID】，应用类型选择 <b>Web 应用</b>。</Text>
+                              <Text>5. 在【已获授权的重定向 URI】中添加：<code>{chrome.identity.getRedirectURL()}</code>。</Text>
+                              <Text>6. 复制生成的 <b>客户端 ID (Client ID)</b> 粘贴到上方输入框，并点击【一键 OAuth 授权】即可！</Text>
+                            </Stack>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      </Accordion>
+                    </Stack>
+                  </Paper>
+                )}
+              </Stack>
+
+              <Group align="center" position="apart" pt="xs">
+                <Text size="xs" color={lightOrDark(theme, "orange", "yellow")}>
+                  {syncForm.formState.isDirty && "你有未保存的更改"}
+                </Text>
+                <Group align="center" spacing="xs">
+                  <Button size="xs" variant="subtle" disabled={!syncForm.formState.isDirty} onClick={() => syncForm.reset()}>
+                    重置
+                  </Button>
+                  <Button size="xs" disabled={!syncForm.formState.isDirty} type="submit">
+                    保存设置
+                  </Button>
+                </Group>
+              </Group>
+            </Stack>
+          </form>
         </Tabs.Panel>
       </Tabs>
     </Paper>

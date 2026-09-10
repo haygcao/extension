@@ -19,6 +19,7 @@ export const entriesAtom = atom<Entry[]>([]);
 export const clipboardSnapshotAtom = atom<ClipboardSnapshot>();
 
 export const favoriteEntryIdsAtom = atom<string[]>([]);
+export const pinnedEntryIdsAtom = atom<string[]>([]);
 
 export const settingsAtom = atom<Settings>(defaultSettings);
 

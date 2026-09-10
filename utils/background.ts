@@ -1,6 +1,4 @@
-import type { InstaQLEntity } from "@instantdb/core";
-
-import type { AppSchema } from "~instant.schema";
+import type { CloudEntry } from "~utils/sync/provider";
 
 import db from "./db/core";
 
@@ -59,13 +57,12 @@ export const watchClipboard = (
 export const watchCloudEntries = async (
   w: Window,
   getRefreshToken: () => Promise<string | null>,
-  cb: (cloudEntries: InstaQLEntity<AppSchema, "entries">[]) => Promise<void>,
+  cb: (cloudEntries: CloudEntry[]) => Promise<void>,
 ) => {
-  let watching = false;
   let fetching = false;
 
   w.setInterval(async () => {
-    if (watching || fetching) {
+    if (fetching) {
       return;
     }
 
@@ -74,21 +71,8 @@ export const watchCloudEntries = async (
 
       const refreshToken = await getRefreshToken();
       if (refreshToken !== null) {
-        watching = true;
-
-        db.subscribeQuery(
-          {
-            entries: {},
-          },
-          async (cloudEntriesQuery) => {
-            // TODO: Potentially just call the callback with an empty array?
-            if (!cloudEntriesQuery.data) {
-              return;
-            }
-
-            await cb(cloudEntriesQuery.data.entries);
-          },
-        );
+        const result = await db.queryOnce({ entries: {} });
+        await cb(result.data.entries as CloudEntry[]);
       }
     } catch (e) {
       console.log(e);

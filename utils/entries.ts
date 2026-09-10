@@ -40,6 +40,7 @@ export const applyLocalItemLimit = (
   entries: Entry[],
   settings: Settings,
   favoriteEntryIds: string[],
+  pinnedEntryIds: string[] = [],
 ): [Entry[], string[]] => {
   const { localItemLimit } = settings;
 
@@ -47,13 +48,13 @@ export const applyLocalItemLimit = (
     return [entries, []];
   }
 
-  const favoriteEntryIdSet = new Set(favoriteEntryIds);
+  const protectedEntryIdSet = new Set([...favoriteEntryIds, ...pinnedEntryIds]);
 
   const [newEntries, skippedEntryIds] = entries
     .sort((a, b) => getEntryTimestamp(a, settings) - getEntryTimestamp(b, settings))
     .reduceRight<[Entry[], string[], number]>(
       (acc, curr) => {
-        if (favoriteEntryIdSet.has(curr.id)) {
+        if (protectedEntryIdSet.has(curr.id)) {
           acc[0].push(curr);
           return acc;
         }

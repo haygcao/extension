@@ -4,6 +4,7 @@ import { IconEdit, IconKeyboard } from "@tabler/icons-react";
 import { useAtomValue } from "jotai";
 
 import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
+import { usePinnedEntryIds } from "~popup/contexts/PinnedEntryIdsContext";
 import { useCopyEntry } from "~popup/hooks/useCopyEntry";
 import { useNow } from "~popup/hooks/useNow";
 import {
@@ -21,6 +22,7 @@ import { EntryCloudAction } from "./cloud/EntryCloudAction";
 import { CommonActionIcon } from "./CommonActionIcon";
 import { EntryDeleteAction } from "./EntryDeleteAction";
 import { EntryFavoriteAction } from "./EntryFavoriteAction";
+import { EntryPinAction } from "./EntryPinAction";
 import { EditEntryModalContent } from "./modals/EditEntryModalContent";
 import { ShortcutsModalContent } from "./modals/ShortcutsModalContent";
 import { ShortcutBadge } from "./ShortcutBadge";
@@ -42,6 +44,8 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
   const commands = useAtomValue(commandsAtom);
   const clipboardSnapshot = useAtomValue(clipboardSnapshotAtom);
   const copyEntry = useCopyEntry();
+  const pinnedEntryIdsSet = usePinnedEntryIds();
+  const isPinned = pinnedEntryIdsSet.has(entry.id);
 
   const commandName = entryCommands.find(
     (entryCommand) => entryCommand.entryId === entry.id,
@@ -57,10 +61,14 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
           ? lightOrDark(theme, theme.colors.indigo[0], theme.fn.darken(theme.colors.indigo[9], 0.5))
           : isKeyboardSelected
             ? lightOrDark(theme, theme.colors.gray[0], theme.colors.dark[5])
-            : undefined,
+            : isPinned
+              ? lightOrDark(theme, "rgba(99, 102, 241, 0.04)", "rgba(99, 102, 241, 0.08)")
+              : undefined,
         boxShadow: isKeyboardSelected
           ? `inset ${rem(3)} 0 0 0 ${lightOrDark(theme, theme.colors.indigo[5], theme.colors.indigo[4])}`
-          : undefined,
+          : isPinned
+            ? `inset ${rem(3)} 0 0 0 ${theme.colors.indigo[5]}`
+            : undefined,
         cursor: "pointer",
         ":hover": {
           backgroundColor: selectedEntryIds.has(entry.id)
@@ -92,9 +100,11 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
         />
         <Badge
           color={
-            entry.content === clipboardSnapshot?.content
-              ? undefined
-              : lightOrDark(theme, "gray.5", "dark.4")
+            isPinned
+              ? "indigo.6"
+              : entry.content === clipboardSnapshot?.content
+                ? undefined
+                : lightOrDark(theme, "gray.5", "dark.4")
           }
           variant="filled"
           w={100}
@@ -102,9 +112,11 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
           size="sm"
           mx="sm"
         >
-          {entry.content === clipboardSnapshot?.content
-            ? "Copied"
-            : badgeDateFormatter(now, new Date(getEntryTimestamp(entry, settings)))}
+          {isPinned
+            ? "📌 置顶"
+            : entry.content === clipboardSnapshot?.content
+              ? "Copied"
+              : badgeDateFormatter(now, new Date(getEntryTimestamp(entry, settings)))}
         </Badge>
         <Text
           fz="xs"
@@ -165,6 +177,7 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
             <IconEdit size="1rem" />
           </CommonActionIcon>
           <EntryCloudAction entry={entry} />
+          <EntryPinAction entryId={entry.id} />
           <EntryFavoriteAction entryId={entry.id} />
           <EntryDeleteAction entryId={entry.id} />
         </Group>

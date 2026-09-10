@@ -33,7 +33,7 @@ export const EntryCloudAction = ({ entry }: Props) => {
   );
   const isCloudEntry = entry.id.length === 36;
 
-  if (!subscriptionsQuery.data?.subscriptions.length || connectionStatus === "closed") {
+  if (!(subscriptionsQuery.data?.subscriptions as any[] | undefined)?.length || connectionStatus === "closed") {
     return null;
   }
 

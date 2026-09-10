@@ -69,10 +69,10 @@ export const handleUpdateContextMenusRequest = debounce(async () => {
           }),
         ]);
 
-      cloudEntries = cloudEntriesQuery.data.entries;
-      cloudFavoriteEntryIds = cloudFavoritedEntriesQuery.data.entries.map(({ id }) => id);
-      cloudEntryIdToTags = cloudTaggedEntriesQuery.data.entries.reduce<EntryIdToTags>(
-        (acc, curr) => {
+      cloudEntries = (cloudEntriesQuery.data.entries as any[]) || [];
+      cloudFavoriteEntryIds = ((cloudFavoritedEntriesQuery.data.entries as any[]) || []).map(({ id }: any) => id);
+      cloudEntryIdToTags = ((cloudTaggedEntriesQuery.data.entries as any[]) || []).reduce<EntryIdToTags>(
+        (acc, curr: any) => {
           acc[curr.id] = z
             .array(z.string())
             .catch([])

@@ -2,7 +2,7 @@ import { useAtomValue } from "jotai";
 import { createContext, useContext, type PropsWithChildren } from "react";
 
 import { useCloudEntriesQuery } from "~popup/hooks/useCloudEntriesQuery";
-import { entriesAtom, settingsAtom, transitioningEntryContentHashAtom } from "~popup/states/atoms";
+import { entriesAtom, pinnedEntryIdsAtom, settingsAtom, transitioningEntryContentHashAtom } from "~popup/states/atoms";
 import type { Entry } from "~types/entry";
 import db from "~utils/db/react";
 import { getEntryTimestamp } from "~utils/entries";
@@ -14,8 +14,10 @@ export const EntriesProvider = ({ children }: PropsWithChildren) => {
   const settings = useAtomValue(settingsAtom);
   const transitioningEntryContentHash = useAtomValue(transitioningEntryContentHashAtom);
   const entries = useAtomValue(entriesAtom);
+  const pinnedEntryIds = useAtomValue(pinnedEntryIdsAtom);
   const cloudEntriesQuery = useCloudEntriesQuery();
-  const cloudEntries = connectionStatus === "closed" ? [] : cloudEntriesQuery.data?.entries || [];
+  const cloudEntries =
+    connectionStatus === "closed" ? [] : cloudEntriesQuery.data?.entries || [];
 
   const sortedEntries = entries
     .slice()
@@ -61,7 +63,21 @@ export const EntriesProvider = ({ children }: PropsWithChildren) => {
     j--;
   }
 
-  return <EntriesContext.Provider value={out}>{children}</EntriesContext.Provider>;
+  const seenContent = new Set<string>();
+  const dedupedOut: Entry[] = [];
+  for (const item of out) {
+    if (!seenContent.has(item.content)) {
+      seenContent.add(item.content);
+      dedupedOut.push(item);
+    }
+  }
+
+  const pinnedSet = new Set(pinnedEntryIds);
+  const pinnedList = dedupedOut.filter((e) => pinnedSet.has(e.id));
+  const unpinnedList = dedupedOut.filter((e) => !pinnedSet.has(e.id));
+  const finalList = [...pinnedList, ...unpinnedList];
+
+  return <EntriesContext.Provider value={finalList}>{children}</EntriesContext.Provider>;
 };
 
 export const useEntries = () => {

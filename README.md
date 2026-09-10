@@ -1,166 +1,80 @@
-<a href="https://www.producthunt.com/posts/clipboard-history-3?embed=true&utm_source=badge-featured&utm_medium=badge&utm_souce=badge-clipboard&#0045;history&#0045;3" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=490162&theme=light" alt="Clipboard&#0032;History - Securely&#0032;access&#0044;&#0032;track&#0044;&#0032;and&#0032;manage&#0032;your&#0032;clipboard&#0032;history | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+# OpenClip Sync (v2.0.0)
 
-# Clipboard History
+> 🚀 **安全、私有、多端同步的剪贴板历史管理工具（Chrome / Edge / Firefox 扩展）**  
+> 基于开源项目 [Clipboard History](https://github.com/ayoung19/clipboard-history) 深度二次开发与增强。
 
-![pika-1742612638736-1x](https://github.com/user-attachments/assets/b99fad41-5d85-4497-b90e-de6d51d9200a)
+---
 
-The first open source clipboard manager Chrome extension. Get all of the productivity benefits of a clipboard history with none of the security risks.
+## 🌟 特性一览 (Features)
 
-Clipboard History offers a simple, efficient, and secure way to manage your clipboard. When the clipboard monitor is enabled, everything you copy to your clipboard will be backed up and saved locally for easy access later. Never worry about losing important content in your clipboard again!
+- 🔒 **隐私安全 & 纯本地控制**：所有剪贴板数据完全归您自己掌控，无需第三方中心化商业服务器或付费订阅。
+- 🔄 **多端云同步 (Multi-Provider Sync)**：
+  - **Chrome Sync (内置同步)**：利用 Google 账号在多台电脑间自动静默同步，即开即用（单项配额约 100KB）。
+  - **WebDAV 同步**：支持坚果云、Nextcloud、群晖 Synology、自建网盘等标准 WebDAV 服务端，无容量限制，全私有化。
+  - **Microsoft OneDrive / Google Drive**：支持通过网盘目录进行同步。
+  - **独立开关控制**：可按需同时开启或切换任意同步引擎。
+- 📱 **多设备管理**：支持自定义设备名称（如 `设备 A`、`MacBook`、`Office PC`），多设备数据合并与状态追踪。
+- ⚡ **智能全局去重 (Smart Deduplication)**：复制相同内容自动合并更新时间，避免重复冗余条目，保持剪贴板整洁。
+- 🏷️ **标签分类与全局搜索**：支持为常用剪贴板内容打标签、加星收藏、快捷搜索。
+- 🎨 **现代化 UI & 浮动窗口**：支持暗黑模式、侧边栏 (Side Panel) 模式与独立画中画浮动小窗。
 
-## Security & Privacy
+---
 
-Unrestricted access to your clipboard can raise serious privacy concerns. In an effort to be the most trustworthy clipboard history manager, Clipboard History is fully open-source. You can download or review the source code here: https://github.com/ayoung19/clipboard-history
+## 🛠️ 配置指南 (Setup Guide)
 
-# Contributing
+### 1. WebDAV 同步配置（以坚果云为例）
+1. 打开坚果云官网并登录 -> 【账户信息】 -> 【安全设置】 -> 【添加应用密码】。
+2. 打开 OpenClip Sync -> 右上角【个人中心】或【设置】 -> 【Cloud】选项卡。
+3. 开启 **WebDAV 云同步** 开关，填写：
+   - **服务器 URL**：`https://dav.jianguoyun.com/dav/`
+   - **账号 / 邮箱**：您的坚果云注册邮箱
+   - **密码**：刚才生成的应用授权密码
+   - **保存路径**：`/openclip-sync.json`
+4. 点击【保存设置】即可完成。
 
-Contributions are always welcome and appreciated! Feel free to pick up any issue with tags that aren’t already assigned—just leave a comment if you’d like to work on something.
+### 2. Chrome 内置同步配置
+1. 在【Cloud】选项卡中直接打开 **Chrome 内置同步 (Chrome Sync)** 开关。
+2. 确保您的浏览器已登录 Google 账号并开启扩展同步功能，多台设备即可自动实现剪贴板内容同步。
 
-Need faster responses? Join our [discord](https://discord.gg/4dY6MYa9wV), introduce yourself, and ping away!
+---
 
-## Architecture Diagram
+## 📐 图标规范 (Icon Assets)
 
-Below is a rudimentary architecture diagram showing the general flow of clipboard data between the different components of the extension.
+若需要自定义扩展图标，请准备以下尺寸的 PNG 图像并放置于 `assets/` 目录：
+- `assets/icon.png`: 主图标（推荐分辨率 **512x512** PNG）
+- `assets/iconOn128.png`: 监控开启状态图标（分辨率 **128x128** PNG）
+- `assets/iconOff128.png`: 监控暂停状态图标（分辨率 **128x128** PNG）
 
-![Untitled-2024-10-02-0046](https://github.com/user-attachments/assets/98cc2c69-245f-4225-a188-39175cc03502)
+---
 
-## Project Structure
+## 💻 本地开发与构建 (Development)
 
-This is a [Plasmo extension](https://docs.plasmo.com/) project bootstrapped with [`plasmo init`](https://www.npmjs.com/package/plasmo).
+本项目基于 [Plasmo Framework](https://docs.plasmo.com/) 构建。
 
-```
-clipboard-history
-├── assets
-├── background
-│   ├── messages
-│   └── index.ts
-├── popup
-├── scripts
-├── storage
-├── tabs
-├── types
-├── utils
-├── offscreen.html
-└── offscreen.ts
-```
-
-| Name                  | Description                                                                 |
-| --------------------- | --------------------------------------------------------------------------- |
-| `assets`              | https://docs.plasmo.com/framework/assets                                    |
-| `background/messages` | https://docs.plasmo.com/framework/messaging                                 |
-| `background/index.ts` | https://docs.plasmo.com/framework/background-service-worker                 |
-| `popup`               | https://docs.plasmo.com/framework/ext-pages#adding-a-popup-page             |
-| `scripts`             | Contains scripts used in the build system and CI/CD.                        |
-| `tabs`                | https://docs.plasmo.com/framework/tab-pages                                 |
-| `types`               | Contains definitions and schemas of common types used in application logic. |
-| `utils`               | Contains utility functions used in application logic.                       |
-| `offscreen.html`      | https://developer.chrome.com/docs/extensions/reference/api/offscreen        |
-| `offscreen.ts`        | https://developer.chrome.com/docs/extensions/reference/api/offscreen        |
-
-## Getting Started
-
-First, run the development server:
-
+### 安装依赖
 ```bash
-pnpm dev
-# or
+npm install
+```
+
+### 开发模式 (Dev Server)
+```bash
 npm run dev
+# 或
+npx plasmo dev
 ```
+打开 Chrome 浏览器访问 `chrome://extensions`，开启开发者模式并点击【加载已解压的扩展程序】，选择项目目录下的 `build/chrome-mv3-dev` 即可。
 
-Open your browser and load the appropriate development build. For example, if you are developing for the chrome browser, using manifest v3, use: `build/chrome-mv3-dev`.
-
-You can start editing the popup by modifying `popup.tsx`. It should auto-update as you make changes. To add an options page, simply add a `options.tsx` file to the root of the project, with a react component default exported. Likewise to add a content page, add a `content.ts` file to the root of the project, importing some module and do some logic, then reload the extension on your browser.
-
-For further guidance, [visit our Documentation](https://docs.plasmo.com/)
-
-## Making production build
-
-Run the following:
-
+### 生产打包 (Production Build)
 ```bash
-pnpm build
-# or
 npm run build
+# 或
+npx plasmo build
 ```
+打包输出目录为 `build/chrome-mv3-prod`。
 
-This should create a production bundle for your extension, ready to be zipped and published to the stores.
+---
 
-## Submit to the webstores
+## 📜 致谢与开源协议 (Attribution & License)
 
-The easiest way to deploy your Plasmo extension is to use the built-in [bpp](https://bpp.browser.market) GitHub action. Prior to using this action however, make sure to build your extension and upload the first version to the store to establish the basic credentials. Then, simply follow [this setup instruction](https://docs.plasmo.com/framework/workflows/submit) and you should be on your way for automated submission!
-
-# Contributors
-
-<!-- readme: contributors -start -->
-<table>
-	<tbody>
-		<tr>
-            <td align="center">
-                <a href="https://github.com/ayoung19">
-                    <img src="https://avatars.githubusercontent.com/u/18640252?v=4" width="100;" alt="ayoung19"/>
-                    <br />
-                    <sub><b>Andy Young</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/aichRhythm">
-                    <img src="https://avatars.githubusercontent.com/u/48093060?v=4" width="100;" alt="aichRhythm"/>
-                    <br />
-                    <sub><b>Rhythm Aich</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/rrailroad">
-                    <img src="https://avatars.githubusercontent.com/u/67599303?v=4" width="100;" alt="rrailroad"/>
-                    <br />
-                    <sub><b>Rachel Cai</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/aanand3">
-                    <img src="https://avatars.githubusercontent.com/u/63207932?v=4" width="100;" alt="aanand3"/>
-                    <br />
-                    <sub><b>aanand3</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/pgiouroukis">
-                    <img src="https://avatars.githubusercontent.com/u/55794994?v=4" width="100;" alt="pgiouroukis"/>
-                    <br />
-                    <sub><b>Petros Giouroukis</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/rishilahoti">
-                    <img src="https://avatars.githubusercontent.com/u/96910554?v=4" width="100;" alt="rishilahoti"/>
-                    <br />
-                    <sub><b>Rishi Lahoti</b></sub>
-                </a>
-            </td>
-		</tr>
-		<tr>
-            <td align="center">
-                <a href="https://github.com/Thetis-Maria">
-                    <img src="https://avatars.githubusercontent.com/u/183512650?v=4" width="100;" alt="Thetis-Maria"/>
-                    <br />
-                    <sub><b>Thetis Simeonidou</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/uussaammaahh">
-                    <img src="https://avatars.githubusercontent.com/u/10544770?v=4" width="100;" alt="uussaammaahh"/>
-                    <br />
-                    <sub><b>Usamah Ulde</b></sub>
-                </a>
-            </td>
-            <td align="center">
-                <a href="https://github.com/riyan04">
-                    <img src="https://avatars.githubusercontent.com/u/119859849?v=4" width="100;" alt="riyan04"/>
-                    <br />
-                    <sub><b>riyan04</b></sub>
-                </a>
-            </td>
-		</tr>
-	<tbody>
-</table>
-<!-- readme: contributors -end -->
+- 本项目由 **OpenClip Sync** 团队在原始优秀开源项目 [ayoung19/clipboard-history](https://github.com/ayoung19/clipboard-history)（原作者：[Andy Young](https://github.com/ayoung19)）的基础上改造而来。
+- 本项目遵循 GPL-3.0 协议开源，仅供个人自用备份及技术研究交流。

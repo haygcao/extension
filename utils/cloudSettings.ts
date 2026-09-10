@@ -1,8 +1,8 @@
-import type { InstaQLEntity } from "@instantdb/core";
+export interface CloudSettingsData {
+  cloudItemLimit?: number | null;
+}
 
-import type { AppSchema } from "~instant.schema";
-
-export const resolveCloudSettings = (cloudSettings?: InstaQLEntity<AppSchema, "settings">) => {
+export const resolveCloudSettings = (cloudSettings?: CloudSettingsData) => {
   return {
     cloudItemLimit:
       !cloudSettings ||

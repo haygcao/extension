@@ -135,7 +135,7 @@ export const App = () => {
         <Group align="center" position="apart">
           <Group align="center" spacing="xs">
             <Image src={iconSrc} maw={28} />
-            {!isSidePanel && <Title order={6}>Clipboard History IO</Title>}
+            {!isSidePanel && <Title order={6}>OpenClip Sync</Title>}
             <ProBadge />
           </Group>
           <Group align="center" spacing="xs" grow={false}>

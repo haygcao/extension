@@ -1,5 +1,4 @@
 import { createHash } from "crypto";
-import { lookup } from "@instantdb/core";
 import { Err, Ok, Result } from "ts-results";
 import { z } from "zod";
 
@@ -18,6 +17,7 @@ import {
   deleteFavoriteEntryIds,
   getFavoriteEntryIds,
 } from "~storage/favoriteEntryIds";
+import { getPinnedEntryIds } from "~storage/pinnedEntryIds";
 import { getRefreshToken } from "~storage/refreshToken";
 import { getSettings } from "~storage/settings";
 import { Entry } from "~types/entry";
@@ -88,7 +88,6 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
 
       if (subscriptionsQuery.data.subscriptions.length > 0) {
         const contentHash = createHash("sha256").update(content).digest("hex");
-
         const emailContentHash = `${user.email}+${contentHash}`;
 
         const entriesQuery = await db.queryOnce({
@@ -102,13 +101,17 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
         });
 
         const now = Date.now();
+        const existingEntry = (entriesQuery.data.entries as any[]).find(
+          (e: any) => e.emailContentHash === emailContentHash,
+        );
 
         await db.transact(
-          db.tx.entries[lookup("emailContentHash", emailContentHash)]!.update({
-            ...(entriesQuery.data.entries.length ? {} : { createdAt: now }),
+          db.tx.entries[emailContentHash]!.update({
+            ...(existingEntry ? {} : { createdAt: now }),
             copiedAt: now,
             content: content,
-          }).link({ $user: lookup("email", user.email) }),
+            emailContentHash,
+          }),
         );
 
         // Apply cloud item limit.
@@ -120,21 +123,21 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
             getSettings(),
           ]);
 
-          const cloudSettings = resolveCloudSettings(cloudSettingsQuery.data.settings[0]);
+          const cloudSettings = resolveCloudSettings((cloudSettingsQuery.data.settings as any[])[0]);
 
           if (cloudSettings.cloudItemLimit !== null) {
             const allEntriesQuery = await db.queryOnce({
               entries: {},
             });
 
-            const entriesToDelete = allEntriesQuery.data.entries
-              .filter((entry) => !entry.isFavorited)
-              .sort((a, b) => getEntryTimestamp(b, settings) - getEntryTimestamp(a, settings))
+            const entriesToDelete = (allEntriesQuery.data.entries as any[])
+              .filter((entry: any) => !entry.isFavorited)
+              .sort((a: any, b: any) => getEntryTimestamp(b, settings) - getEntryTimestamp(a, settings))
               .slice(cloudSettings.cloudItemLimit);
 
             for (let i = 0; i < entriesToDelete.length; i += 100) {
-              db.transact(
-                entriesToDelete.slice(i, i + 100).map((entry) => db.tx.entries[entry.id]!.delete()),
+              await db.transact(
+                entriesToDelete.slice(i, i + 100).map((entry: any) => db.tx.entries[entry.id]!.delete()),
               );
             }
           }
@@ -149,9 +152,10 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
     }
   }
 
-  const [entries, favoriteEntryIds, settings] = await Promise.all([
+  const [entries, favoriteEntryIds, pinnedEntryIds, settings] = await Promise.all([
     getEntries(),
     getFavoriteEntryIds(),
+    getPinnedEntryIds(),
     getSettings(),
   ]);
 
@@ -171,7 +175,12 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
     entry.copiedAt = Date.now();
   }
 
-  const [newEntries, skippedEntryIds] = applyLocalItemLimit(entries, settings, favoriteEntryIds);
+  const [newEntries, skippedEntryIds] = applyLocalItemLimit(
+    entries,
+    settings,
+    favoriteEntryIds,
+    pinnedEntryIds,
+  );
 
   await Promise.all([
     _setEntries(newEntries),
@@ -298,7 +307,7 @@ export const toggleEntryStorageLocation = async (entryId: string) => {
     ]);
 
     // Return early if cloud entry doesn't exist.
-    const cloudEntry = cloudEntryQuery.data.entries[0];
+    const cloudEntry = (cloudEntryQuery.data.entries as any[])[0] as any;
     if (!cloudEntry) {
       return;
     }
@@ -364,20 +373,22 @@ export const toggleEntryStorageLocation = async (entryId: string) => {
       },
     },
   });
-  if (cloudEntryQuery.data.entries.length > 0) {
+  if ((cloudEntryQuery.data.entries as any[]).length > 0) {
     return;
   }
 
   // Copy local entry to cloud.
   const tags = entryIdToTags[localEntry.id];
+  const emailContentHash = `${user.email}+${localEntry.id}`;
   await db.transact(
-    db.tx.entries[lookup("emailContentHash", `${user.email}+${localEntry.id}`)]!.update({
+    db.tx.entries[emailContentHash]!.update({
       createdAt: localEntry.createdAt,
       copiedAt: localEntry.copiedAt || null,
       content: localEntry.content,
       isFavorited: favoriteEntryIds.includes(localEntry.id),
       tags: tags?.length ? JSON.stringify(tags) : null,
-    }).link({ $user: lookup("email", user.email) }),
+      emailContentHash,
+    }),
   );
 
   await new Promise((r) => setTimeout(r, 400));

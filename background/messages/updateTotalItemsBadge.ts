@@ -35,7 +35,7 @@ export const handleUpdateTotalItemsBadgeRequest = async (totalLocalEntries: numb
       entries: {},
     });
 
-    totalEntries += cloudEntriesQuery.data.entries.length;
+    totalEntries += ((cloudEntriesQuery.data.entries as any[]) || []).length;
   } catch (e) {
     console.log(e);
   }

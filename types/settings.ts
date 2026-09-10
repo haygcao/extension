@@ -19,6 +19,7 @@ export const defaultSettings = {
   localItemLimit: null,
   localItemCharacterLimit: null,
   displayMode: DisplayMode.Enum.Popup,
+  language: "auto",
 };
 
 export const Settings = z
@@ -35,6 +36,7 @@ export const Settings = z
     localItemLimit: z.number().nullable().default(defaultSettings.localItemLimit),
     localItemCharacterLimit: z.number().nullable().default(defaultSettings.localItemCharacterLimit),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
+    language: z.string().default(defaultSettings.language),
   })
   .default(defaultSettings);
 export type Settings = z.infer<typeof Settings>;

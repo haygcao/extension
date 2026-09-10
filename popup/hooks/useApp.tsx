@@ -16,6 +16,7 @@ import { getClipboardSnapshot, watchClipboardSnapshot } from "~storage/clipboard
 import { getEntryCommands, watchEntryCommands } from "~storage/entryCommands";
 import { getEntryIdToTags, watchEntryIdToTags } from "~storage/entryIdToTags";
 import { getFavoriteEntryIds, watchFavoriteEntryIds } from "~storage/favoriteEntryIds";
+import { getPinnedEntryIds, watchPinnedEntryIds } from "~storage/pinnedEntryIds";
 import { getRefreshToken, watchRefreshToken } from "~storage/refreshToken";
 import { getSettings, watchSettings } from "~storage/settings";
 import { getEntries, watchEntries } from "~utils/storage";
@@ -29,6 +30,7 @@ import {
   entryCommandsAtom,
   entryIdToTagsAtom,
   favoriteEntryIdsAtom,
+  pinnedEntryIdsAtom,
   refreshTokenAtom,
   settingsAtom,
   tabAtom,
@@ -61,6 +63,7 @@ export const useApp = () => {
 
   const setEntries = useSetAtom(entriesAtom);
   const setFavoriteEntryIds = useSetAtom(favoriteEntryIdsAtom);
+  const setPinnedEntryIds = useSetAtom(pinnedEntryIdsAtom);
   const setEntryIdToTags = useSetAtom(entryIdToTagsAtom);
 
   const setChangelogViewedAt = useSetAtom(changelogViewedAtAtom);
@@ -81,6 +84,9 @@ export const useApp = () => {
       setFavoriteEntryIds(favoriteEntryIds);
       updateContextMenus();
     });
+
+    getPinnedEntryIds().then(setPinnedEntryIds);
+    watchPinnedEntryIds(setPinnedEntryIds);
 
     getEntryIdToTags().then(setEntryIdToTags);
     watchEntryIdToTags((entryIdToTags) => {

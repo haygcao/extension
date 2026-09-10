@@ -9,7 +9,7 @@ export const setActionBadgeText = async (totalEntries: number) => {
       notation: "compact",
       maximumFractionDigits: 0,
       roundingMode: "floor",
-    }).format(totalEntries),
+    } as any).format(totalEntries),
   });
 };
 

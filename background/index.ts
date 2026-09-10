@@ -240,3 +240,12 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     }
   }
 });
+
+chrome.storage.onChanged.addListener(async (changes, areaName) => {
+  if (areaName === "sync" && changes.cloudData) {
+    db.invalidateCache();
+    const entries = await getEntries();
+    handleUpdateTotalItemsBadgeRequest(entries.length).catch(() => {});
+    handleUpdateContextMenusRequest().catch(() => {});
+  }
+});
