@@ -4,6 +4,8 @@
  * 支持每个服务独立开关、独立状态追踪、复合多端并发双向同步与智能去重
  */
 
+import { createHash } from "crypto";
+
 import {
   getSyncSettings,
   setSyncSettings,
@@ -32,6 +34,51 @@ export interface SyncProvider {
   pull(): Promise<CloudData>;
   push(data: CloudData): Promise<void>;
 }
+
+/** 安全解析从远端拉取的各类 JSON 结构（支持对象 { entries } 或纯数组 [ ... ]） */
+export const parseRemoteJson = (data: any): CloudData => {
+  if (!data) return { entries: [], settings: [] };
+
+  if (Array.isArray(data.entries)) {
+    return {
+      entries: data.entries.map((e: any) => {
+        const text = typeof e.content === "string" ? e.content : typeof e.text === "string" ? e.text : "";
+        const id = e.id || createHash("sha256").update(text).digest("hex");
+        return {
+          id,
+          emailContentHash: e.emailContentHash || id,
+          content: text,
+          createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
+          copiedAt: typeof e.copiedAt === "number" ? e.copiedAt : e.createdAt || Date.now(),
+          isFavorited: !!(e.isFavorited || e.isFavorite),
+          tags: typeof e.tags === "string" ? e.tags : Array.isArray(e.tags) ? JSON.stringify(e.tags) : undefined,
+        };
+      }),
+      settings: Array.isArray(data.settings) ? data.settings : [],
+    };
+  }
+
+  if (Array.isArray(data)) {
+    return {
+      entries: data.map((e: any) => {
+        const text = typeof e.content === "string" ? e.content : typeof e.text === "string" ? e.text : "";
+        const id = e.id || createHash("sha256").update(text).digest("hex");
+        return {
+          id,
+          emailContentHash: id,
+          content: text,
+          createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
+          copiedAt: typeof e.copiedAt === "number" ? e.copiedAt : e.createdAt || Date.now(),
+          isFavorited: !!(e.isFavorited || e.isFavorite),
+          tags: typeof e.tags === "string" ? e.tags : Array.isArray(e.tags) ? JSON.stringify(e.tags) : undefined,
+        };
+      }),
+      settings: [],
+    };
+  }
+
+  return { entries: [], settings: [] };
+};
 
 /** 多设备双向合并与自动去重：按文本内容自动去重合并，相同内容保留最新时间戳与标签并集 */
 export const mergeCloudData = (local: CloudData, remote: CloudData): CloudData => {
@@ -66,7 +113,10 @@ export const mergeCloudData = (local: CloudData, remote: CloudData): CloudData =
       contentMap.set(key, {
         ...existing,
         id: item.id && item.id.length === 36 ? item.id : existing.id,
-        createdAt: existingCreated && itemCreated ? Math.min(existingCreated, itemCreated) : (existingCreated || itemCreated),
+        createdAt:
+          existingCreated && itemCreated
+            ? Math.min(existingCreated, itemCreated)
+            : existingCreated || itemCreated,
         copiedAt: Math.max(existingCopied, itemCopied),
         isFavorited: existing.isFavorited || item.isFavorited,
         tags: mergedTags,
@@ -89,10 +139,28 @@ export const mergeCloudData = (local: CloudData, remote: CloudData): CloudData =
 // ─────────────────────────────────────────────
 const CHROME_SYNC_KEY = "cloudData";
 
+export const clearChromeSyncStorage = async (): Promise<void> => {
+  return new Promise((resolve) => {
+    if (typeof chrome !== "undefined" && chrome.storage?.sync) {
+      chrome.storage.sync.remove([CHROME_SYNC_KEY], () => {
+        updateProviderStatus("chrome", {
+          status: "idle",
+          message: "Chrome 云端存储已清空",
+          itemCount: 0,
+        });
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
+};
+
 export const chromeSyncProvider: SyncProvider = {
   name: "Chrome Sync",
   async isAvailable() {
-    return typeof chrome !== "undefined" && !!chrome.storage?.sync;
+    const s = await getSyncSettings();
+    return !!s.enableChromeSync && typeof chrome !== "undefined" && !!chrome.storage?.sync;
   },
   async pull() {
     try {
@@ -103,7 +171,7 @@ export const chromeSyncProvider: SyncProvider = {
             resolve({ entries: [], settings: [] });
           } else {
             try {
-              resolve(JSON.parse(raw) as CloudData);
+              resolve(parseRemoteJson(JSON.parse(raw)));
             } catch {
               resolve({ entries: [], settings: [] });
             }
@@ -168,9 +236,12 @@ export const createWebDavProvider = (
   password: string,
   path: string,
 ): SyncProvider => {
-  const fileUrl = url.replace(/\/$/, "") + path;
+  const cleanPath = path ? (path.startsWith("/") ? path : `/${path}`) : "/openclip-sync.json";
+  const fileUrl = url.replace(/\/$/, "") + cleanPath;
+  // 安全处理 UTF-8 账号密码 Base64 编码
+  const authHeader = "Basic " + btoa(unescape(encodeURIComponent(`${username}:${password}`)));
   const headers = {
-    Authorization: "Basic " + btoa(`${username}:${password}`),
+    Authorization: authHeader,
     "Content-Type": "application/json",
   };
 
@@ -192,8 +263,8 @@ export const createWebDavProvider = (
           return { entries: [], settings: [] };
         }
         if (!res.ok) throw new Error(`WebDAV GET 失败: HTTP ${res.status}`);
-        const data = (await res.json()) as CloudData;
-        const result = { entries: data.entries || [], settings: data.settings || [] };
+        const rawJson = await res.json();
+        const result = parseRemoteJson(rawJson);
         await updateProviderStatus("webdav", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -214,7 +285,7 @@ export const createWebDavProvider = (
         const res = await fetch(fileUrl, {
           method: "PUT",
           headers,
-          body: JSON.stringify(data),
+          body: JSON.stringify(data, null, 2),
         });
         if (!res.ok) throw new Error(`WebDAV PUT 失败: HTTP ${res.status}`);
         await updateProviderStatus("webdav", {
@@ -264,8 +335,8 @@ export const createOneDriveProvider = (
           return { entries: [], settings: [] };
         }
         if (!res.ok) throw new Error(`OneDrive 读取失败: HTTP ${res.status}`);
-        const data = (await res.json()) as CloudData;
-        const result = { entries: data.entries || [], settings: data.settings || [] };
+        const rawJson = await res.json();
+        const result = parseRemoteJson(rawJson);
         await updateProviderStatus("onedrive", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -289,7 +360,7 @@ export const createOneDriveProvider = (
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(data, null, 2),
         });
         if (!res.ok) throw new Error(`OneDrive 写入失败: HTTP ${res.status}`);
         await updateProviderStatus("onedrive", {
@@ -352,8 +423,8 @@ export const createGoogleDriveProvider = (
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok) throw new Error(`Google Drive 读取失败: HTTP ${res.status}`);
-        const data = (await res.json()) as CloudData;
-        const result = { entries: data.entries || [], settings: data.settings || [] };
+        const rawJson = await res.json();
+        const result = parseRemoteJson(rawJson);
         await updateProviderStatus("googledrive", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -372,10 +443,9 @@ export const createGoogleDriveProvider = (
     async push(data) {
       try {
         const fileId = await getFileId();
-        const bodyStr = JSON.stringify(data);
+        const bodyStr = JSON.stringify(data, null, 2);
 
         if (fileId) {
-          // 更新已有文件
           const res = await fetch(
             `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
             {
@@ -389,7 +459,6 @@ export const createGoogleDriveProvider = (
           );
           if (!res.ok) throw new Error(`Google Drive 更新失败: HTTP ${res.status}`);
         } else {
-          // 创建新文件 (Multipart upload)
           const metadata = { name: fileName, mimeType: "application/json" };
           const boundary = "-------OpenClipSyncBoundary" + Math.random().toString(36).substring(2);
           const delimiter = `\r\n--${boundary}\r\n`;
@@ -539,7 +608,6 @@ export const getActiveProvider = async (): Promise<SyncProvider | null> => {
   if (providers.length === 0) return null;
   if (providers.length === 1) return providers[0]!;
 
-  // 复合提供方：同时同步到所有已开启的后端
   return {
     name: providers.map((p) => p.name).join(" + "),
     async isAvailable() {

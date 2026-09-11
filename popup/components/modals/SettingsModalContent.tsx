@@ -21,6 +21,7 @@ import {
   TextInput,
   ThemeIcon,
   Title,
+  Tooltip,
   useMantineTheme,
 } from "@mantine/core";
 import { useColorScheme } from "@mantine/hooks";
@@ -43,16 +44,16 @@ import {
   IconLanguage,
   IconPlugConnected,
   IconServer,
+  IconTrash,
   IconUpload,
 } from "@tabler/icons-react";
 import { useAtomValue } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { ShortcutBadge } from "~popup/components/ShortcutBadge";
 import { useSettingsQuery } from "~popup/hooks/useSettingsQuery";
-import { useSubscriptionsQuery } from "~popup/hooks/useSubscriptionsQuery";
 import { commandsAtom, settingsAtom } from "~popup/states/atoms";
 import { setSettings } from "~storage/settings";
 import {
@@ -60,9 +61,7 @@ import {
   setSyncSettings,
   type SyncSettings,
 } from "~storage/syncSettings";
-import { DisplayMode } from "~types/displayMode";
 import { ItemSortOption } from "~types/itemSortOption";
-import { StorageLocation } from "~types/storageLocation";
 import { resolveCloudSettings } from "~utils/cloudSettings";
 import db from "~utils/db/react";
 import {
@@ -73,6 +72,7 @@ import {
 import {
   authorizeGoogleOAuth,
   authorizeOneDriveOAuth,
+  clearChromeSyncStorage,
   createWebDavProvider,
 } from "~utils/sync/provider";
 import { defaultBorderColor, lightOrDark } from "~utils/sx";
@@ -113,15 +113,15 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
   const theme = useMantineTheme();
   const settings = useAtomValue(settingsAtom);
   const commands = useAtomValue(commandsAtom);
-  const systemColorScheme = useColorScheme();
   const settingsQuery = useSettingsQuery();
   const cloudSettings = (settingsQuery.data?.settings as any[] | undefined)?.[0];
 
   const [file, setFile] = useState<File | null>(null);
-  const [syncDefaults, setSyncDefaults] = useState<SyncFormValues | null>(null);
   const [testingWebdav, setTestingWebdav] = useState(false);
+  const [clearingChrome, setClearingChrome] = useState(false);
   const [authorizingGoogle, setAuthorizingGoogle] = useState(false);
   const [authorizingOneDrive, setAuthorizingOneDrive] = useState(false);
+  const [autoSavedTime, setAutoSavedTime] = useState<number | null>(null);
 
   const storageForm = useForm<StorageFormValues>({
     defaultValues: {
@@ -132,14 +132,8 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     resolver: zodResolver(storageSchema),
   });
 
-  const cloudForm = useForm<CloudFormValues>({
-    defaultValues: resolveCloudSettings(cloudSettings as any),
-    mode: "all",
-    resolver: zodResolver(cloudSchema),
-  });
-
   const syncForm = useForm<SyncFormValues>({
-    defaultValues: syncDefaults || {
+    defaultValues: {
       deviceName: "设备 A",
       enableChromeSync: false,
       enableWebdav: false,
@@ -162,6 +156,8 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     resolver: zodResolver(syncSchema),
   });
 
+  const isInitialLoad = useRef(true);
+
   useEffect(() => {
     getSyncSettings().then((s) => {
       const vals: SyncFormValues = {
@@ -183,14 +179,28 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
         googleClientSecret: s.googleClientSecret || "",
         googleAccessToken: s.googleAccessToken || "",
       };
-      setSyncDefaults(vals);
       syncForm.reset(vals);
+      setTimeout(() => {
+        isInitialLoad.current = false;
+      }, 100);
     });
   }, []);
+
+  // 监听表单变更，实现真正的实时自动保存 (Auto Save)
+  useEffect(() => {
+    const subscription = syncForm.watch((values) => {
+      if (isInitialLoad.current) return;
+      setSyncSettings(values as Partial<SyncSettings>).then(() => {
+        setAutoSavedTime(Date.now());
+      });
+    });
+    return () => subscription.unsubscribe();
+  }, [syncForm.watch]);
 
   const enableWebdav = syncForm.watch("enableWebdav");
   const enableOneDrive = syncForm.watch("enableOneDrive");
   const enableGoogleDrive = syncForm.watch("enableGoogleDrive");
+  const enableChromeSync = syncForm.watch("enableChromeSync");
 
   const handleTestWebdav = async () => {
     const vals = syncForm.getValues();
@@ -227,6 +237,26 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     }
   };
 
+  const handleClearChromeSync = async () => {
+    setClearingChrome(true);
+    try {
+      await clearChromeSyncStorage();
+      notifications.show({
+        color: "green",
+        title: "已清空",
+        message: "Chrome 云端同步存储中的数据已全部清除",
+      });
+    } catch (e: any) {
+      notifications.show({
+        color: "red",
+        title: "清除失败",
+        message: e?.message || "清除异常",
+      });
+    } finally {
+      setClearingChrome(false);
+    }
+  };
+
   const handleAuthGoogle = async () => {
     const clientId = syncForm.getValues("googleClientId");
     if (!clientId) {
@@ -240,11 +270,12 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     setAuthorizingGoogle(true);
     try {
       const token = await authorizeGoogleOAuth(clientId);
-      syncForm.setValue("googleAccessToken", token, { shouldDirty: true });
+      syncForm.setValue("googleAccessToken", token);
+      await setSyncSettings({ googleAccessToken: token });
       notifications.show({
         color: "green",
         title: "Google Drive 授权成功",
-        message: "已成功获取访问令牌，请点击下方【保存设置】",
+        message: "已成功获取访问令牌并自动保存！",
       });
     } catch (e: any) {
       notifications.show({
@@ -270,11 +301,12 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     setAuthorizingOneDrive(true);
     try {
       const token = await authorizeOneDriveOAuth(clientId);
-      syncForm.setValue("oneDriveAccessToken", token, { shouldDirty: true });
+      syncForm.setValue("oneDriveAccessToken", token);
+      await setSyncSettings({ oneDriveAccessToken: token });
       notifications.show({
         color: "green",
         title: "OneDrive 授权成功",
-        message: "已成功获取微软访问令牌，请点击下方【保存设置】",
+        message: "已成功获取微软访问令牌并自动保存！",
       });
     } catch (e: any) {
       notifications.show({
@@ -321,21 +353,7 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
           <Tabs.Tab value="import-export" icon={<IconDeviceFloppy size="0.8rem" />}>
             导入 / 导出 (Backup)
           </Tabs.Tab>
-          <Tabs.Tab
-            value="cloud"
-            icon={
-              <Indicator
-                color={lightOrDark(theme, "orange", "yellow")}
-                size={8}
-                disabled={!syncForm.formState.isDirty}
-                offset={1}
-              >
-                <Box mt={rem(1)}>
-                  <IconCloud size="0.8rem" />
-                </Box>
-              </Indicator>
-            }
-          >
+          <Tabs.Tab value="cloud" icon={<IconCloud size="0.8rem" />}>
             多端云同步 (Cloud)
           </Tabs.Tab>
         </Tabs.List>
@@ -536,11 +554,9 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
                   <Switch
                     checked={storageForm.watch("localItemLimit") !== null}
                     onChange={(e) => {
-                      storageForm.setValue(
-                        "localItemLimit",
-                        e.target.checked ? settings.localItemLimit || 1000 : null,
-                        { shouldDirty: true },
-                      );
+                      const limit = e.target.checked ? settings.localItemLimit || 1000 : null;
+                      storageForm.setValue("localItemLimit", limit, { shouldDirty: true });
+                      setSettings({ ...settings, localItemLimit: limit });
                     }}
                   />
                 </Group>
@@ -551,26 +567,17 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
                     <NumberInput
                       {...field}
                       value={field.value === null ? "" : field.value}
-                      onChange={(value) => field.onChange(value === "" ? 0 : value)}
+                      onChange={(value) => {
+                        const num = value === "" ? 0 : value;
+                        field.onChange(num);
+                        setSettings({ ...settings, localItemLimit: num });
+                      }}
                       disabled={field.value === null}
                       size="xs"
                     />
                   )}
                 />
               </Stack>
-              <Group align="center" position="apart">
-                <Text size="xs" color={lightOrDark(theme, "orange", "yellow")}>
-                  {storageForm.formState.isDirty && "你有未保存的更改"}
-                </Text>
-                <Group align="center" spacing="xs">
-                  <Button size="xs" variant="subtle" disabled={!storageForm.formState.isDirty} onClick={() => storageForm.reset()}>
-                    重置
-                  </Button>
-                  <Button size="xs" disabled={!storageForm.formState.isDirty} type="submit">
-                    保存
-                  </Button>
-                </Group>
-              </Group>
             </Stack>
           </form>
         </Tabs.Panel>
@@ -684,53 +691,67 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
           </Stack>
         </Tabs.Panel>
 
-        {/* 5. 多端云同步选项卡 */}
+        {/* 5. 多端云同步选项卡 (实时自动保存) */}
         <Tabs.Panel value="cloud">
-          <form
-            onSubmit={syncForm.handleSubmit(async (values) => {
-              await setSyncSettings(values);
-              notifications.show({
-                color: "green",
-                title: "成功",
-                message: "多端同步设置已保存",
-              });
-              syncForm.reset(values);
-            })}
-          >
-            <Stack p="md" spacing="md">
-              {/* 设备名称 */}
-              <Group align="flex-start" spacing="md" position="apart" noWrap>
-                <Stack spacing={0} sx={{ flex: 1 }}>
-                  <Title order={6}>设备名称 / Device Name</Title>
+          <Stack p="md" spacing="md">
+            {/* 自动保存状态指示 */}
+            <Group position="apart" align="center">
+              <Group spacing={6} align="center">
+                <ThemeIcon size="xs" color="green" variant="light" radius="xl">
+                  <IconCheck size="0.65rem" />
+                </ThemeIcon>
+                <Text fz="xs" color="dimmed">
+                  所有设置实时自动保存 (Auto-saved)
+                </Text>
+              </Group>
+            </Group>
+
+            {/* 设备名称 */}
+            <Group align="flex-start" spacing="md" position="apart" noWrap>
+              <Stack spacing={0} sx={{ flex: 1 }}>
+                <Title order={6}>设备名称 / Device Name</Title>
+                <Text fz="xs" color="dimmed">
+                  设置当前设备的标识名称（如：设备 A、办公电脑、MacBook 等），用于多端区分与同步状态追踪。
+                </Text>
+              </Stack>
+              <Controller
+                name="deviceName"
+                control={syncForm.control}
+                render={({ field }) => (
+                  <TextInput {...field} size="xs" w={180} placeholder="设备 A" />
+                )}
+              />
+            </Group>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 1. Chrome Sync */}
+            <Stack spacing="xs">
+              <Group align="center" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group spacing="xs" align="center">
+                    <Title order={6}>Chrome 内置同步 (Chrome Sync)</Title>
+                    <Badge size="xs" color="blue" variant="light">
+                      免配置
+                    </Badge>
+                  </Group>
                   <Text fz="xs" color="dimmed">
-                    设置当前设备的标识名称（如：设备 A、办公电脑、MacBook 等），用于多端区分与同步状态追踪。
+                    通过 Chrome 账号跨设备自动静默同步。单项配额约 100KB，适合多台电脑间快速传输文本。
                   </Text>
                 </Stack>
-                <Controller
-                  name="deviceName"
-                  control={syncForm.control}
-                  render={({ field }) => (
-                    <TextInput {...field} size="xs" w={180} placeholder="设备 A" />
+                <Group spacing="xs" align="center">
+                  {enableChromeSync && (
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      color="red"
+                      leftIcon={<IconTrash size="0.75rem" />}
+                      loading={clearingChrome}
+                      onClick={handleClearChromeSync}
+                    >
+                      清空云端存储
+                    </Button>
                   )}
-                />
-              </Group>
-
-              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-
-              {/* 1. Chrome Sync */}
-              <Stack spacing="xs">
-                <Group align="center" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Group spacing="xs" align="center">
-                      <Title order={6}>Chrome 内置同步 (Chrome Sync)</Title>
-                      <Badge size="xs" color="blue" variant="light">
-                        免配置
-                      </Badge>
-                    </Group>
-                    <Text fz="xs" color="dimmed">
-                      通过 Chrome 账号跨设备自动静默同步。单项配额约 100KB，适合多台电脑间快速传输文本。
-                    </Text>
-                  </Stack>
                   <Controller
                     name="enableChromeSync"
                     control={syncForm.control}
@@ -744,322 +765,308 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
                     )}
                   />
                 </Group>
-              </Stack>
-
-              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-
-              {/* 2. WebDAV Sync */}
-              <Stack spacing="xs">
-                <Group align="center" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Group spacing="xs" align="center">
-                      <Title order={6}>WebDAV 云同步</Title>
-                      <Badge size="xs" color="teal" variant="light">
-                        私有云推荐
-                      </Badge>
-                    </Group>
-                    <Text fz="xs" color="dimmed">
-                      支持坚果云、Nextcloud、群晖 Synology、自建 WebDAV 等任意标准 WebDAV 服务端。
-                    </Text>
-                  </Stack>
-                  <Controller
-                    name="enableWebdav"
-                    control={syncForm.control}
-                    render={({ field }) => (
-                      <Switch
-                        size="md"
-                        color="indigo.5"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.currentTarget.checked)}
-                      />
-                    )}
-                  />
-                </Group>
-
-                {enableWebdav && (
-                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
-                    <Stack spacing="xs">
-                      <Controller
-                        name="webdavUrl"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="服务器 URL (Server URL)"
-                            placeholder="https://dav.jianguoyun.com/dav/"
-                          />
-                        )}
-                      />
-                      <Group grow>
-                        <Controller
-                          name="webdavUsername"
-                          control={syncForm.control}
-                          render={({ field }) => (
-                            <TextInput
-                              {...field}
-                              size="xs"
-                              label="账号 / 邮箱 (Username)"
-                              placeholder="account@example.com"
-                            />
-                          )}
-                        />
-                        <Controller
-                          name="webdavPassword"
-                          control={syncForm.control}
-                          render={({ field }) => (
-                            <TextInput
-                              {...field}
-                              size="xs"
-                              type="password"
-                              label="密码 / 应用授权码 (Password / Token)"
-                              placeholder="••••••••"
-                            />
-                          )}
-                        />
-                      </Group>
-                      <Controller
-                        name="webdavPath"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="远端保存文件路径 (Remote Path)"
-                            placeholder="/openclip-sync.json"
-                          />
-                        )}
-                      />
-                      <Group position="right" pt={4}>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          color="teal"
-                          leftIcon={<IconPlugConnected size="0.85rem" />}
-                          loading={testingWebdav}
-                          onClick={handleTestWebdav}
-                        >
-                          测试 WebDAV 连接
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
-
-              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-
-              {/* 3. Microsoft OneDrive */}
-              <Stack spacing="xs">
-                <Group align="center" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Group spacing="xs" align="center">
-                      <Title order={6}>Microsoft OneDrive 同步</Title>
-                      <Badge size="xs" color="cyan" variant="light">
-                        OneDrive
-                      </Badge>
-                    </Group>
-                    <Text fz="xs" color="dimmed">
-                      通过 Microsoft OneDrive 个人/企业网盘同步剪贴板记录。
-                    </Text>
-                  </Stack>
-                  <Controller
-                    name="enableOneDrive"
-                    control={syncForm.control}
-                    render={({ field }) => (
-                      <Switch
-                        size="md"
-                        color="indigo.5"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.currentTarget.checked)}
-                      />
-                    )}
-                  />
-                </Group>
-
-                {enableOneDrive && (
-                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
-                    <Stack spacing="xs">
-                      <Controller
-                        name="oneDriveFolder"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="同步目录 (Folder Path)"
-                            placeholder="/OpenClipSync"
-                          />
-                        )}
-                      />
-                      <Controller
-                        name="oneDriveClientId"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="应用程序 (Client) ID"
-                            placeholder="Azure Portal 注册的应用 Client ID"
-                          />
-                        )}
-                      />
-                      <Controller
-                        name="oneDriveAccessToken"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="访问令牌 (Access Token)"
-                            placeholder="点击下方按钮自动获取或手动填入 Token"
-                          />
-                        )}
-                      />
-                      <Group position="apart" pt={4}>
-                        <Text fz={11} color="dimmed">
-                          重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
-                        </Text>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          color="cyan"
-                          leftIcon={<IconBrandOnedrive size="0.85rem" />}
-                          loading={authorizingOneDrive}
-                          onClick={handleAuthOneDrive}
-                        >
-                          点击一键 OAuth 授权登录
-                        </Button>
-                      </Group>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
-
-              <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-
-              {/* 4. Google Drive */}
-              <Stack spacing="xs">
-                <Group align="center" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Group spacing="xs" align="center">
-                      <Title order={6}>Google Drive 云端硬盘同步</Title>
-                      <Badge size="xs" color="yellow" variant="light">
-                        Google Drive
-                      </Badge>
-                    </Group>
-                    <Text fz="xs" color="dimmed">
-                      通过 Google Drive 个人云端硬盘同步剪贴板记录。
-                    </Text>
-                  </Stack>
-                  <Controller
-                    name="enableGoogleDrive"
-                    control={syncForm.control}
-                    render={({ field }) => (
-                      <Switch
-                        size="md"
-                        color="indigo.5"
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.currentTarget.checked)}
-                      />
-                    )}
-                  />
-                </Group>
-
-                {enableGoogleDrive && (
-                  <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
-                    <Stack spacing="xs">
-                      <Controller
-                        name="googleDriveFolder"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="同步目录 (Folder Path)"
-                            placeholder="/OpenClipSync"
-                          />
-                        )}
-                      />
-                      <Controller
-                        name="googleClientId"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="Google Cloud OAuth Client ID"
-                            placeholder="例如: xxxxxxxx.apps.googleusercontent.com"
-                          />
-                        )}
-                      />
-                      <Controller
-                        name="googleAccessToken"
-                        control={syncForm.control}
-                        render={({ field }) => (
-                          <TextInput
-                            {...field}
-                            size="xs"
-                            label="访问令牌 (Access Token)"
-                            placeholder="点击下方按钮自动获取或手动填入 Token"
-                          />
-                        )}
-                      />
-                      <Group position="apart" pt={4}>
-                        <Text fz={11} color="dimmed">
-                          重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
-                        </Text>
-                        <Button
-                          size="xs"
-                          variant="light"
-                          color="yellow"
-                          leftIcon={<IconBrandGoogleDrive size="0.85rem" />}
-                          loading={authorizingGoogle}
-                          onClick={handleAuthGoogle}
-                        >
-                          点击一键 OAuth 授权登录
-                        </Button>
-                      </Group>
-
-                      <Accordion variant="separated" radius="xs" chevronPosition="right">
-                        <Accordion.Item value="guide">
-                          <Accordion.Control>
-                            <Text fz="xs" color="dimmed">
-                              📖 查看如何免费申请 Google OAuth Client ID 简易步骤
-                            </Text>
-                          </Accordion.Control>
-                          <Accordion.Panel>
-                            <Stack spacing={4} fz={11} color="dimmed">
-                              <Text>1. 访问 <Anchor href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</Anchor> 并新建一个项目。</Text>
-                              <Text>2. 前往【API 和服务】→【库】，搜索并启用 <b>Google Drive API</b>。</Text>
-                              <Text>3. 进入【OAuth 同意屏幕】，用户类型选择“外部”，填写应用名称与邮箱。</Text>
-                              <Text>4. 进入【凭据】→【创建凭据】→【OAuth 客户端 ID】，应用类型选择 <b>Web 应用</b>。</Text>
-                              <Text>5. 在【已获授权的重定向 URI】中添加：<code>{chrome.identity.getRedirectURL()}</code>。</Text>
-                              <Text>6. 复制生成的 <b>客户端 ID (Client ID)</b> 粘贴到上方输入框，并点击【一键 OAuth 授权】即可！</Text>
-                            </Stack>
-                          </Accordion.Panel>
-                        </Accordion.Item>
-                      </Accordion>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
-
-              <Group align="center" position="apart" pt="xs">
-                <Text size="xs" color={lightOrDark(theme, "orange", "yellow")}>
-                  {syncForm.formState.isDirty && "你有未保存的更改"}
-                </Text>
-                <Group align="center" spacing="xs">
-                  <Button size="xs" variant="subtle" disabled={!syncForm.formState.isDirty} onClick={() => syncForm.reset()}>
-                    重置
-                  </Button>
-                  <Button size="xs" disabled={!syncForm.formState.isDirty} type="submit">
-                    保存设置
-                  </Button>
-                </Group>
               </Group>
             </Stack>
-          </form>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 2. WebDAV Sync */}
+            <Stack spacing="xs">
+              <Group align="center" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group spacing="xs" align="center">
+                    <Title order={6}>WebDAV 云同步</Title>
+                    <Badge size="xs" color="teal" variant="light">
+                      私有云推荐
+                    </Badge>
+                  </Group>
+                  <Text fz="xs" color="dimmed">
+                    支持 Koofr、坚果云、Nextcloud、群晖 Synology、自建 WebDAV 等任意标准 WebDAV 服务端。
+                  </Text>
+                </Stack>
+                <Controller
+                  name="enableWebdav"
+                  control={syncForm.control}
+                  render={({ field }) => (
+                    <Switch
+                      size="md"
+                      color="indigo.5"
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.currentTarget.checked)}
+                    />
+                  )}
+                />
+              </Group>
+
+              {enableWebdav && (
+                <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                  <Stack spacing="xs">
+                    <Controller
+                      name="webdavUrl"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="服务器 URL (Server URL)"
+                          placeholder="https://app.koofr.net/dav/Koofr 或 https://dav.jianguoyun.com/dav/"
+                        />
+                      )}
+                    />
+                    <Group grow>
+                      <Controller
+                        name="webdavUsername"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            label="账号 / 邮箱 (Username)"
+                            placeholder="account@example.com"
+                          />
+                        )}
+                      />
+                      <Controller
+                        name="webdavPassword"
+                        control={syncForm.control}
+                        render={({ field }) => (
+                          <TextInput
+                            {...field}
+                            size="xs"
+                            type="password"
+                            label="密码 / 应用授权码 (Password / Token)"
+                            placeholder="••••••••"
+                          />
+                        )}
+                      />
+                    </Group>
+                    <Controller
+                      name="webdavPath"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="远端保存文件路径 (Remote Path)"
+                          placeholder="/clipboard-history.json 或 /openclip-sync.json"
+                        />
+                      )}
+                    />
+                    <Group position="right" pt={4}>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="teal"
+                        leftIcon={<IconPlugConnected size="0.85rem" />}
+                        loading={testingWebdav}
+                        onClick={handleTestWebdav}
+                      >
+                        测试 WebDAV 连接并立即同步
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 3. Microsoft OneDrive */}
+            <Stack spacing="xs">
+              <Group align="center" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group spacing="xs" align="center">
+                    <Title order={6}>Microsoft OneDrive 同步</Title>
+                    <Badge size="xs" color="cyan" variant="light">
+                      OneDrive
+                    </Badge>
+                  </Group>
+                  <Text fz="xs" color="dimmed">
+                    通过 Microsoft OneDrive 个人/企业网盘同步剪贴板记录。
+                  </Text>
+                </Stack>
+                <Controller
+                  name="enableOneDrive"
+                  control={syncForm.control}
+                  render={({ field }) => (
+                    <Switch
+                      size="md"
+                      color="indigo.5"
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.currentTarget.checked)}
+                    />
+                  )}
+                />
+              </Group>
+
+              {enableOneDrive && (
+                <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                  <Stack spacing="xs">
+                    <Controller
+                      name="oneDriveFolder"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="同步目录 (Folder Path)"
+                          placeholder="/OpenClipSync"
+                        />
+                      )}
+                    />
+                    <Controller
+                      name="oneDriveClientId"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="应用程序 (Client) ID"
+                          placeholder="Azure Portal 注册的应用 Client ID"
+                        />
+                      )}
+                    />
+                    <Controller
+                      name="oneDriveAccessToken"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="访问令牌 (Access Token)"
+                          placeholder="点击下方按钮自动获取或手动填入 Token"
+                        />
+                      )}
+                    />
+                    <Group position="apart" pt={4}>
+                      <Text fz={11} color="dimmed">
+                        重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
+                      </Text>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="cyan"
+                        leftIcon={<IconBrandOnedrive size="0.85rem" />}
+                        loading={authorizingOneDrive}
+                        onClick={handleAuthOneDrive}
+                      >
+                        点击一键 OAuth 授权登录
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 4. Google Drive */}
+            <Stack spacing="xs">
+              <Group align="center" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Group spacing="xs" align="center">
+                    <Title order={6}>Google Drive 云端硬盘同步</Title>
+                    <Badge size="xs" color="yellow" variant="light">
+                      Google Drive
+                    </Badge>
+                  </Group>
+                  <Text fz="xs" color="dimmed">
+                    通过 Google Drive 个人云端硬盘同步剪贴板记录。
+                  </Text>
+                </Stack>
+                <Controller
+                  name="enableGoogleDrive"
+                  control={syncForm.control}
+                  render={({ field }) => (
+                    <Switch
+                      size="md"
+                      color="indigo.5"
+                      checked={field.value}
+                      onChange={(e) => field.onChange(e.currentTarget.checked)}
+                    />
+                  )}
+                />
+              </Group>
+
+              {enableGoogleDrive && (
+                <Paper withBorder p="sm" radius="sm" sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
+                  <Stack spacing="xs">
+                    <Controller
+                      name="googleDriveFolder"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="同步目录 (Folder Path)"
+                          placeholder="/OpenClipSync"
+                        />
+                      )}
+                    />
+                    <Controller
+                      name="googleClientId"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="Google Cloud OAuth Client ID"
+                          placeholder="例如: xxxxxxxx.apps.googleusercontent.com"
+                        />
+                      )}
+                    />
+                    <Controller
+                      name="googleAccessToken"
+                      control={syncForm.control}
+                      render={({ field }) => (
+                        <TextInput
+                          {...field}
+                          size="xs"
+                          label="访问令牌 (Access Token)"
+                          placeholder="点击下方按钮自动获取或手动填入 Token"
+                        />
+                      )}
+                    />
+                    <Group position="apart" pt={4}>
+                      <Text fz={11} color="dimmed">
+                        重定向 URI 请设置为: <code>{chrome.identity.getRedirectURL()}</code>
+                      </Text>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        color="yellow"
+                        leftIcon={<IconBrandGoogleDrive size="0.85rem" />}
+                        loading={authorizingGoogle}
+                        onClick={handleAuthGoogle}
+                      >
+                        点击一键 OAuth 授权登录
+                      </Button>
+                    </Group>
+
+                    <Accordion variant="separated" radius="xs" chevronPosition="right">
+                      <Accordion.Item value="guide">
+                        <Accordion.Control>
+                          <Text fz="xs" color="dimmed">
+                            📖 查看如何免费申请 Google OAuth Client ID 简易步骤
+                          </Text>
+                        </Accordion.Control>
+                        <Accordion.Panel>
+                          <Stack spacing={4} fz={11} color="dimmed">
+                            <Text>1. 访问 <Anchor href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</Anchor> 并新建一个项目。</Text>
+                            <Text>2. 前往【API 和服务】→【库】，搜索并启用 <b>Google Drive API</b>。</Text>
+                            <Text>3. 进入【OAuth 同意屏幕】，用户类型选择“外部”，填写应用名称与邮箱。</Text>
+                            <Text>4. 进入【凭据】→【创建凭据】→【OAuth 客户端 ID】，应用类型选择 <b>Web 应用</b>。</Text>
+                            <Text>5. 在【已获授权的重定向 URI】中添加：<code>{chrome.identity.getRedirectURL()}</code>。</Text>
+                            <Text>6. 复制生成的 <b>客户端 ID (Client ID)</b> 粘贴到上方输入框，并点击【一键 OAuth 授权】即可！</Text>
+                          </Stack>
+                        </Accordion.Panel>
+                      </Accordion.Item>
+                    </Accordion>
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+          </Stack>
         </Tabs.Panel>
       </Tabs>
     </Paper>

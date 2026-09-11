@@ -2,7 +2,7 @@
   "packageManager": "pnpm@8.15.9",
   "name": "openclip-sync",
   "displayName": "OpenClip Sync - Fast, Secure & Multi-Device Clipboard Manager",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Powerful multi-device clipboard manager with WebDAV, Chrome Sync, content deduplication and tags.",
   "author": "Open Source Community",
   "scripts": {
@@ -77,6 +77,10 @@
       "scripting",
       "activeTab",
       "sidePanel"
+    ],
+    "host_permissions": [
+      "https://*/*",
+      "http://*/*"
     ],
     "side_panel": {
       "default_path": "popup.html?ref=sidepanel"
