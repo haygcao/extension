@@ -163,6 +163,10 @@ export const chromeSyncProvider: SyncProvider = {
     return !!s.enableChromeSync && typeof chrome !== "undefined" && !!chrome.storage?.sync;
   },
   async pull() {
+    const s = await getSyncSettings();
+    if (!s.enableChromeSync) {
+      return { entries: [], settings: [] };
+    }
     try {
       const res = await new Promise<CloudData>((resolve) => {
         chrome.storage.sync.get(CHROME_SYNC_KEY, (result) => {
@@ -194,6 +198,10 @@ export const chromeSyncProvider: SyncProvider = {
     }
   },
   async push(data) {
+    const s = await getSyncSettings();
+    if (!s.enableChromeSync) {
+      return;
+    }
     let toPush = data;
     let json = JSON.stringify(toPush);
     if (new Blob([json]).size > 7500) {

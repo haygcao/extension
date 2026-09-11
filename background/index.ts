@@ -243,6 +243,9 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (areaName === "sync" && changes.cloudData) {
+    const { getSyncSettings } = await import("~storage/syncSettings");
+    const s = await getSyncSettings();
+    if (!s.enableChromeSync) return;
     db.invalidateCache();
     const entries = await getEntries();
     handleUpdateTotalItemsBadgeRequest(entries.length).catch(() => {});

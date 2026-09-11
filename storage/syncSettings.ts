@@ -49,15 +49,21 @@ const KEY = "syncSettings";
 
 export const getSyncSettings = async (): Promise<SyncSettings> => {
   const val = (await storage.get<any>(KEY)) || {};
-  // 兼容旧版 provider 字段
-  if (val.provider === "chrome") val.enableChromeSync = true;
-  if (val.provider === "webdav") val.enableWebdav = true;
-  return { ...DEFAULT_SYNC_SETTINGS, ...val };
+  return {
+    ...DEFAULT_SYNC_SETTINGS,
+    ...val,
+    enableChromeSync: typeof val.enableChromeSync === "boolean" ? val.enableChromeSync : false,
+    enableWebdav: typeof val.enableWebdav === "boolean" ? val.enableWebdav : false,
+    enableOneDrive: typeof val.enableOneDrive === "boolean" ? val.enableOneDrive : false,
+    enableGoogleDrive: typeof val.enableGoogleDrive === "boolean" ? val.enableGoogleDrive : false,
+  };
 };
 
 export const setSyncSettings = async (settings: Partial<SyncSettings>): Promise<void> => {
   const current = await getSyncSettings();
-  await storage.set(KEY, { ...current, ...settings });
+  const next = { ...current, ...settings };
+  delete (next as any).provider;
+  await storage.set(KEY, next);
 };
 
 export interface ProviderDetailStatus {
