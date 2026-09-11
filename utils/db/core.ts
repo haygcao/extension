@@ -7,11 +7,13 @@
 import { _setEntryIdToTags, getEntryIdToTags } from "~storage/entryIdToTags";
 import { _setFavoriteEntryIds, getFavoriteEntryIds } from "~storage/favoriteEntryIds";
 import { _setPinnedEntryIds, getPinnedEntryIds } from "~storage/pinnedEntryIds";
+import { getSettings } from "~storage/settings";
 import { setSyncStatus } from "~storage/syncSettings";
 import type { Entry } from "~types/entry";
 import {
   getActiveProvider,
   mergeCloudData,
+  pruneExpiredAndOversizedEntries,
   type CloudData,
   type CloudEntry,
 } from "~utils/sync/provider";
@@ -25,11 +27,12 @@ export interface DbData {
 }
 
 export const getLocalAsCloudData = async (): Promise<CloudData> => {
-  const [entries, entryIdToTags, favoriteIds, pinnedIds] = await Promise.all([
+  const [entries, entryIdToTags, favoriteIds, pinnedIds, settings] = await Promise.all([
     getEntries(),
     getEntryIdToTags(),
     getFavoriteEntryIds(),
     getPinnedEntryIds(),
+    getSettings(),
   ]);
   const favSet = new Set(favoriteIds);
   const pinSet = new Set(pinnedIds);
@@ -44,8 +47,14 @@ export const getLocalAsCloudData = async (): Promise<CloudData> => {
     tags: entryIdToTags[e.id]?.length ? JSON.stringify(entryIdToTags[e.id]) : undefined,
   }));
 
+  const pruned = pruneExpiredAndOversizedEntries(
+    cloudEntries,
+    settings.historyRetentionDays,
+    settings.localItemCharacterLimit,
+  );
+
   return {
-    entries: cloudEntries,
+    entries: pruned,
     settings: [],
   };
 };

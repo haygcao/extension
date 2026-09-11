@@ -6,6 +6,7 @@
 
 import { createHash } from "crypto";
 
+import { getSettings } from "~storage/settings";
 import {
   getSyncSettings,
   setSyncSettings,
@@ -34,6 +35,85 @@ export interface SyncProvider {
   pull(): Promise<CloudData>;
   push(data: CloudData): Promise<void>;
 }
+
+/** 原生 Gzip 压缩与解压（利用现代浏览器原生 CompressionStream API） */
+export const compressToGzip = async (text: string): Promise<Uint8Array> => {
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+  const response = new Response(stream);
+  const blob = await response.blob();
+  return new Uint8Array(await blob.arrayBuffer());
+};
+
+export const decompressFromGzip = async (data: ArrayBuffer | Uint8Array): Promise<string> => {
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const response = new Response(stream);
+  return await response.text();
+};
+
+/** 判断是否为 Gzip 格式（魔数 0x1F, 0x8B） */
+export const isGzipData = (bytes: Uint8Array): boolean => {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+};
+
+/** 智能解析：支持解析纯 JSON 文本、ArrayBuffer 以及 Gzip 压缩二进制流 */
+export const parseRemotePayload = async (payload: any): Promise<CloudData> => {
+  if (!payload) return { entries: [], settings: [] };
+
+  try {
+    let jsonStr = "";
+    if (payload instanceof ArrayBuffer || payload instanceof Uint8Array) {
+      const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+      if (isGzipData(bytes)) {
+        jsonStr = await decompressFromGzip(bytes);
+      } else {
+        jsonStr = new TextDecoder().decode(bytes);
+      }
+      return parseRemoteJson(JSON.parse(jsonStr));
+    } else if (typeof payload === "string") {
+      return parseRemoteJson(JSON.parse(payload));
+    } else if (typeof payload === "object") {
+      return parseRemoteJson(payload);
+    }
+  } catch (err) {
+    console.warn("Failed to parse remote payload:", err);
+  }
+  return { entries: [], settings: [] };
+};
+
+/** 根据保留周期（天数）与字符上限对条目进行安全裁剪与过期淘汰（置顶/收藏项永久豁免） */
+export const pruneExpiredAndOversizedEntries = (
+  entries: CloudEntry[],
+  retentionDays: number | null | undefined,
+  maxChars: number | null | undefined,
+): CloudEntry[] => {
+  const now = Date.now();
+  const cutoffTime =
+    typeof retentionDays === "number" && retentionDays > 0
+      ? now - retentionDays * 24 * 60 * 60 * 1000
+      : null;
+
+  return entries
+    .filter((item) => {
+      if (!item || typeof item.content !== "string") return false;
+      // 置顶或收藏的条目拥有永久保留特权
+      if (item.isFavorited) return true;
+      // 检查过期时间
+      if (cutoffTime !== null) {
+        const lastActive = item.copiedAt || item.createdAt || 0;
+        if (lastActive < cutoffTime) return false;
+      }
+      return true;
+    })
+    .map((item) => {
+      if (typeof maxChars === "number" && maxChars > 0 && item.content.length > maxChars) {
+        return {
+          ...item,
+          content: item.content.slice(0, maxChars),
+        };
+      }
+      return item;
+    });
+};
 
 /** 安全解析从远端拉取的各类 JSON 结构（支持对象 { entries } 或纯数组 [ ... ]） */
 export const parseRemoteJson = (data: any): CloudData => {
@@ -244,13 +324,24 @@ export const createWebDavProvider = (
   password: string,
   path: string,
 ): SyncProvider => {
-  const cleanPath = path ? (path.startsWith("/") ? path : `/${path}`) : "/openclip-sync.json";
-  const fileUrl = url.replace(/\/$/, "") + cleanPath;
-  // 安全处理 UTF-8 账号密码 Base64 编码
+  const cleanPath = path ? (path.startsWith("/") ? path : `/${path}`) : "/OpenClipSync/openclip-sync.json";
+  const baseUrl = url.replace(/\/$/, "");
+  const fileUrl = baseUrl + cleanPath;
   const authHeader = "Basic " + btoa(unescape(encodeURIComponent(`${username}:${password}`)));
-  const headers = {
-    Authorization: authHeader,
-    "Content-Type": "application/json",
+  const baseHeaders = { Authorization: authHeader };
+
+  // 确保父目录存在 (MKCOL)
+  const ensureDirectoryExists = async () => {
+    const parts = cleanPath.split("/").filter(Boolean);
+    if (parts.length > 1) {
+      const folderPath = "/" + parts.slice(0, -1).join("/");
+      try {
+        await fetch(baseUrl + folderPath, {
+          method: "MKCOL",
+          headers: baseHeaders,
+        });
+      } catch {}
+    }
   };
 
   return {
@@ -260,7 +351,7 @@ export const createWebDavProvider = (
     },
     async pull() {
       try {
-        const res = await fetch(fileUrl, { method: "GET", headers });
+        const res = await fetch(fileUrl, { method: "GET", headers: baseHeaders });
         if (res.status === 404) {
           await updateProviderStatus("webdav", {
             status: "success",
@@ -271,8 +362,8 @@ export const createWebDavProvider = (
           return { entries: [], settings: [] };
         }
         if (!res.ok) throw new Error(`WebDAV GET 失败: HTTP ${res.status}`);
-        const rawJson = await res.json();
-        const result = parseRemoteJson(rawJson);
+        const buffer = await res.arrayBuffer();
+        const result = await parseRemotePayload(buffer);
         await updateProviderStatus("webdav", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -290,17 +381,41 @@ export const createWebDavProvider = (
     },
     async push(data) {
       try {
+        await ensureDirectoryExists();
+        const settings = await getSettings();
+        const prunedEntries = pruneExpiredAndOversizedEntries(
+          data.entries,
+          settings.historyRetentionDays,
+          settings.localItemCharacterLimit,
+        );
+        const payloadData: CloudData = { ...data, entries: prunedEntries };
+        const jsonStr = JSON.stringify(payloadData);
+
+        let body: BodyInit;
+        let contentType: string;
+
+        if (settings.enableCompression) {
+          body = (await compressToGzip(jsonStr)) as unknown as BodyInit;
+          contentType = "application/gzip";
+        } else {
+          body = jsonStr;
+          contentType = "application/json";
+        }
+
         const res = await fetch(fileUrl, {
           method: "PUT",
-          headers,
-          body: JSON.stringify(data, null, 2),
+          headers: {
+            ...baseHeaders,
+            "Content-Type": contentType,
+          },
+          body,
         });
         if (!res.ok) throw new Error(`WebDAV PUT 失败: HTTP ${res.status}`);
         await updateProviderStatus("webdav", {
           status: "success",
           lastSyncTime: Date.now(),
-          message: "WebDAV 同步成功",
-          itemCount: data.entries.length,
+          message: settings.enableCompression ? "WebDAV 同步成功 (Gzip 压缩)" : "WebDAV 同步成功",
+          itemCount: payloadData.entries.length,
         });
       } catch (e: any) {
         await updateProviderStatus("webdav", {
@@ -343,8 +458,8 @@ export const createOneDriveProvider = (
           return { entries: [], settings: [] };
         }
         if (!res.ok) throw new Error(`OneDrive 读取失败: HTTP ${res.status}`);
-        const rawJson = await res.json();
-        const result = parseRemoteJson(rawJson);
+        const buffer = await res.arrayBuffer();
+        const result = await parseRemotePayload(buffer);
         await updateProviderStatus("onedrive", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -362,20 +477,40 @@ export const createOneDriveProvider = (
     },
     async push(data) {
       try {
+        const settings = await getSettings();
+        const prunedEntries = pruneExpiredAndOversizedEntries(
+          data.entries,
+          settings.historyRetentionDays,
+          settings.localItemCharacterLimit,
+        );
+        const payloadData: CloudData = { ...data, entries: prunedEntries };
+        const jsonStr = JSON.stringify(payloadData);
+
+        let body: BodyInit;
+        let contentType: string;
+
+        if (settings.enableCompression) {
+          body = (await compressToGzip(jsonStr)) as unknown as BodyInit;
+          contentType = "application/gzip";
+        } else {
+          body = jsonStr;
+          contentType = "application/json";
+        }
+
         const res = await fetch(endpoint, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
+            "Content-Type": contentType,
           },
-          body: JSON.stringify(data, null, 2),
+          body,
         });
         if (!res.ok) throw new Error(`OneDrive 写入失败: HTTP ${res.status}`);
         await updateProviderStatus("onedrive", {
           status: "success",
           lastSyncTime: Date.now(),
-          message: "OneDrive 上传成功",
-          itemCount: data.entries.length,
+          message: settings.enableCompression ? "OneDrive 上传成功 (Gzip 压缩)" : "OneDrive 上传成功",
+          itemCount: payloadData.entries.length,
         });
       } catch (e: any) {
         await updateProviderStatus("onedrive", {
@@ -431,8 +566,8 @@ export const createGoogleDriveProvider = (
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok) throw new Error(`Google Drive 读取失败: HTTP ${res.status}`);
-        const rawJson = await res.json();
-        const result = parseRemoteJson(rawJson);
+        const buffer = await res.arrayBuffer();
+        const result = await parseRemotePayload(buffer);
         await updateProviderStatus("googledrive", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -450,8 +585,26 @@ export const createGoogleDriveProvider = (
     },
     async push(data) {
       try {
+        const settings = await getSettings();
+        const prunedEntries = pruneExpiredAndOversizedEntries(
+          data.entries,
+          settings.historyRetentionDays,
+          settings.localItemCharacterLimit,
+        );
+        const payloadData: CloudData = { ...data, entries: prunedEntries };
+        const jsonStr = JSON.stringify(payloadData);
+
+        let bodyStr: string | Uint8Array;
+        let mimeType = "application/json";
+
+        if (settings.enableCompression) {
+          bodyStr = await compressToGzip(jsonStr);
+          mimeType = "application/gzip";
+        } else {
+          bodyStr = jsonStr;
+        }
+
         const fileId = await getFileId();
-        const bodyStr = JSON.stringify(data, null, 2);
 
         if (fileId) {
           const res = await fetch(
@@ -460,26 +613,28 @@ export const createGoogleDriveProvider = (
               method: "PATCH",
               headers: {
                 Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
+                "Content-Type": mimeType,
               },
-              body: bodyStr,
+              body: bodyStr as unknown as BodyInit,
             },
           );
           if (!res.ok) throw new Error(`Google Drive 更新失败: HTTP ${res.status}`);
         } else {
-          const metadata = { name: fileName, mimeType: "application/json" };
+          const metadata = { name: fileName, mimeType };
           const boundary = "-------OpenClipSyncBoundary" + Math.random().toString(36).substring(2);
           const delimiter = `\r\n--${boundary}\r\n`;
           const closeDelimiter = `\r\n--${boundary}--`;
 
-          const multipartRequestBody =
+          const metaPart = new Blob([
             delimiter +
-            "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-            JSON.stringify(metadata) +
-            delimiter +
-            "Content-Type: application/json\r\n\r\n" +
-            bodyStr +
-            closeDelimiter;
+              "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+              JSON.stringify(metadata) +
+              delimiter +
+              `Content-Type: ${mimeType}\r\n\r\n`,
+          ]);
+          const dataPart = new Blob([bodyStr as any]);
+          const closePart = new Blob([closeDelimiter]);
+          const fullBody = new Blob([metaPart, dataPart, closePart]);
 
           const res = await fetch(
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
@@ -489,7 +644,7 @@ export const createGoogleDriveProvider = (
                 Authorization: `Bearer ${accessToken}`,
                 "Content-Type": `multipart/related; boundary=${boundary}`,
               },
-              body: multipartRequestBody,
+              body: fullBody,
             },
           );
           if (!res.ok) throw new Error(`Google Drive 创建文件失败: HTTP ${res.status}`);
@@ -498,8 +653,8 @@ export const createGoogleDriveProvider = (
         await updateProviderStatus("googledrive", {
           status: "success",
           lastSyncTime: Date.now(),
-          message: "Google Drive 上传成功",
-          itemCount: data.entries.length,
+          message: settings.enableCompression ? "Google Drive 上传成功 (Gzip 压缩)" : "Google Drive 上传成功",
+          itemCount: payloadData.entries.length,
         });
       } catch (e: any) {
         await updateProviderStatus("googledrive", {

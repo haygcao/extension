@@ -80,6 +80,8 @@ import { defaultBorderColor, lightOrDark } from "~utils/sx";
 const storageSchema = z.object({
   localItemLimit: z.number().min(1).nullable(),
   localItemCharacterLimit: z.number().min(1).nullable(),
+  historyRetentionDays: z.number().min(1).nullable(),
+  enableCompression: z.boolean(),
 });
 type StorageFormValues = z.infer<typeof storageSchema>;
 
@@ -127,6 +129,8 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
     defaultValues: {
       localItemLimit: settings.localItemLimit,
       localItemCharacterLimit: settings.localItemCharacterLimit,
+      historyRetentionDays: settings.historyRetentionDays,
+      enableCompression: typeof settings.enableCompression === "boolean" ? settings.enableCompression : true,
     },
     mode: "all",
     resolver: zodResolver(storageSchema),
@@ -529,57 +533,154 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
           </Stack>
         </Tabs.Panel>
 
-        {/* 3. 存储容量选项卡 */}
+        {/* 3. 存储容量与数据保护选项卡 */}
         <Tabs.Panel value="storage">
-          <form
-            onSubmit={storageForm.handleSubmit(async (values) => {
-              await setSettings({ ...settings, ...values });
-              notifications.show({
-                color: "green",
-                title: "成功",
-                message: "存储设置已保存",
-              });
-              storageForm.reset(values);
-            })}
-          >
-            <Stack p="md">
-              <Stack spacing="xs">
-                <Group align="flex-start" spacing="md" position="apart" noWrap>
-                  <Stack spacing={0}>
-                    <Title order={6}>本地条目保存数量上限</Title>
-                    <Text fz="xs" color="dimmed">
-                      超出上限时将自动淘汰最早未置顶且未收藏的条目。置顶与收藏项永久免淘汰。
-                    </Text>
-                  </Stack>
-                  <Switch
-                    checked={storageForm.watch("localItemLimit") !== null}
-                    onChange={(e) => {
-                      const limit = e.target.checked ? settings.localItemLimit || 1000 : null;
-                      storageForm.setValue("localItemLimit", limit, { shouldDirty: true });
-                      setSettings({ ...settings, localItemLimit: limit });
-                    }}
-                  />
-                </Group>
-                <Controller
-                  name="localItemLimit"
-                  control={storageForm.control}
-                  render={({ field }) => (
-                    <NumberInput
-                      {...field}
-                      value={field.value === null ? "" : field.value}
-                      onChange={(value) => {
-                        const num = value === "" ? 0 : value;
-                        field.onChange(num);
-                        setSettings({ ...settings, localItemLimit: num });
-                      }}
-                      disabled={field.value === null}
-                      size="xs"
-                    />
-                  )}
+          <Stack p="md" spacing="md">
+            {/* 1. 本地条目数量上限 */}
+            <Stack spacing="xs">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>本地条目保存数量上限</Title>
+                  <Text fz="xs" color="dimmed">
+                    超出上限时将自动淘汰最早未置顶且未收藏的条目。置顶与收藏项永久免淘汰。
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={settings.localItemLimit !== null}
+                  onChange={async (e) => {
+                    const limit = e.target.checked ? 1000 : null;
+                    await setSettings({ ...settings, localItemLimit: limit });
+                  }}
                 />
-              </Stack>
+              </Group>
+              {settings.localItemLimit !== null && (
+                <NumberInput
+                  value={settings.localItemLimit}
+                  onChange={async (value) => {
+                    const num = typeof value === "number" ? value : null;
+                    await setSettings({ ...settings, localItemLimit: num });
+                  }}
+                  min={10}
+                  max={100000}
+                  step={50}
+                  size="xs"
+                  placeholder="如：1000"
+                />
+              )}
             </Stack>
-          </form>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 2. 历史数据保留周期 (过期自动淘汰) */}
+            <Stack spacing="xs">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>历史数据保留周期 (过期自动清理)</Title>
+                  <Text fz="xs" color="dimmed">
+                    自动清理超出指定天数未使用的历史数据，防止数据无限膨胀。📌 置顶与 ⭐ 收藏条目永久保留。
+                  </Text>
+                </Stack>
+                <Select
+                  value={
+                    settings.historyRetentionDays === null
+                      ? "never"
+                      : [30, 90, 180, 365].includes(settings.historyRetentionDays)
+                      ? String(settings.historyRetentionDays)
+                      : "custom"
+                  }
+                  onChange={async (val) => {
+                    let days: number | null = null;
+                    if (val === "never") days = null;
+                    else if (val === "30") days = 30;
+                    else if (val === "90") days = 90;
+                    else if (val === "180") days = 180;
+                    else if (val === "365") days = 365;
+                    else if (val === "custom") days = 60;
+                    await setSettings({ ...settings, historyRetentionDays: days });
+                  }}
+                  data={[
+                    { value: "never", label: "永久保留 (不自动清理)" },
+                    { value: "30", label: "30 天 (1 个月)" },
+                    { value: "90", label: "90 天 (3 个月)" },
+                    { value: "180", label: "180 天 (半年)" },
+                    { value: "365", label: "365 天 (1 年)" },
+                    { value: "custom", label: "自定义天数 (Custom)" },
+                  ]}
+                  size="xs"
+                  withinPortal
+                />
+              </Group>
+              {settings.historyRetentionDays !== null &&
+                ![30, 90, 180, 365].includes(settings.historyRetentionDays) && (
+                  <NumberInput
+                    label="自定义保留天数"
+                    description="输入超过多少天未使用的历史条目将被自动清理淘汰"
+                    value={settings.historyRetentionDays}
+                    onChange={async (value) => {
+                      const num = typeof value === "number" ? value : 30;
+                      await setSettings({ ...settings, historyRetentionDays: num });
+                    }}
+                    min={1}
+                    max={3650}
+                    size="xs"
+                  />
+                )}
+            </Stack>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 3. 云端数据原生 Gzip 压缩 */}
+            <Group align="flex-start" spacing="md" position="apart" noWrap>
+              <Stack spacing={0}>
+                <Title order={6}>云端数据透明压缩 (Gzip)</Title>
+                <Text fz="xs" color="dimmed">
+                  使用浏览器原生 Gzip 算法压缩上传 WebDAV、OneDrive 与 Google Drive 数据，体积骤降 80%~90%，彻底防止文件撑爆。
+                </Text>
+              </Stack>
+              <Switch
+                checked={settings.enableCompression !== false}
+                onChange={async (e) => {
+                  const checked = e.target.checked;
+                  await setSettings({ ...settings, enableCompression: checked });
+                }}
+              />
+            </Group>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 4. 单条内容最大字符长度限制 */}
+            <Stack spacing="xs">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>单条内容字符上限保护</Title>
+                  <Text fz="xs" color="dimmed">
+                    限制单条剪贴板最大字符数，防止误复制数十万行巨型日志或超大 Base64 导致同步卡顿。
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={settings.localItemCharacterLimit !== null}
+                  onChange={async (e) => {
+                    const limit = e.target.checked ? 50000 : null;
+                    await setSettings({ ...settings, localItemCharacterLimit: limit });
+                  }}
+                />
+              </Group>
+              {settings.localItemCharacterLimit !== null && (
+                <NumberInput
+                  value={settings.localItemCharacterLimit}
+                  onChange={async (value) => {
+                    const num = typeof value === "number" ? value : null;
+                    await setSettings({ ...settings, localItemCharacterLimit: num });
+                  }}
+                  min={100}
+                  max={1000000}
+                  step={1000}
+                  size="xs"
+                  placeholder="如：50000"
+                />
+              )}
+            </Stack>
+          </Stack>
         </Tabs.Panel>
 
         {/* 4. 导入 / 导出备份选项卡 */}

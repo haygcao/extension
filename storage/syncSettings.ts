@@ -33,7 +33,7 @@ const DEFAULT_SYNC_SETTINGS: SyncSettings = {
   webdavUrl: "",
   webdavUsername: "",
   webdavPassword: "",
-  webdavPath: "/openclip-sync.json",
+  webdavPath: "/OpenClipSync/openclip-sync.json",
   oneDriveFolder: "/OpenClipSync",
   oneDriveClientId: "",
   oneDriveClientSecret: "",
