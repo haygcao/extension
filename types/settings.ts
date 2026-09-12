@@ -20,6 +20,8 @@ export const defaultSettings = {
   localItemCharacterLimit: null,
   historyRetentionDays: null,
   enableCompression: true,
+  enableBlacklistFilter: false,
+  blacklistKeywords: "error, exception, token=, password=",
   displayMode: DisplayMode.Enum.Popup,
   language: "auto",
 };
@@ -39,6 +41,8 @@ export const Settings = z
     localItemCharacterLimit: z.number().nullable().default(defaultSettings.localItemCharacterLimit),
     historyRetentionDays: z.number().nullable().default(defaultSettings.historyRetentionDays),
     enableCompression: z.boolean().default(defaultSettings.enableCompression),
+    enableBlacklistFilter: z.boolean().default(defaultSettings.enableBlacklistFilter),
+    blacklistKeywords: z.string().default(defaultSettings.blacklistKeywords),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
     language: z.string().default(defaultSettings.language),
   })

@@ -18,6 +18,7 @@ import {
   Switch,
   Tabs,
   Text,
+  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -677,6 +678,40 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
                   step={1000}
                   size="xs"
                   placeholder="如：50000"
+                />
+              )}
+            </Stack>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+            {/* 5. 关键词黑名单自动拦截删除 */}
+            <Stack spacing="xs">
+              <Group align="flex-start" spacing="md" position="apart" noWrap>
+                <Stack spacing={0}>
+                  <Title order={6}>关键词黑名单自动拦截 (自动删除垃圾/错误日志)</Title>
+                  <Text fz="xs" color="dimmed">
+                    复制包含所设关键词的内容时，剪贴板监控捕抓后直接自动拦截丢弃，不保存、不占用任何存储空间。
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={settings.enableBlacklistFilter !== false}
+                  onChange={async (e) => {
+                    const checked = e.target.checked;
+                    await setSettings({ ...settings, enableBlacklistFilter: checked });
+                  }}
+                />
+              </Group>
+              {settings.enableBlacklistFilter !== false && (
+                <Textarea
+                  placeholder="多个关键词可用逗号、分号或换行分隔，例如：error, exception, password=, token="
+                  value={settings.blacklistKeywords || ""}
+                  onChange={async (e) => {
+                    const val = e.target.value;
+                    await setSettings({ ...settings, blacklistKeywords: val });
+                  }}
+                  minRows={2}
+                  maxRows={5}
+                  size="xs"
                 />
               )}
             </Stack>

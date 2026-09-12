@@ -49,9 +49,16 @@ const KEY = "syncSettings";
 
 export const getSyncSettings = async (): Promise<SyncSettings> => {
   const val = (await storage.get<any>(KEY)) || {};
+  let deviceName = val.deviceName;
+  if (!deviceName) {
+    const randomHex = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0");
+    deviceName = `设备-${randomHex}`;
+    await storage.set(KEY, { ...val, deviceName });
+  }
   return {
     ...DEFAULT_SYNC_SETTINGS,
     ...val,
+    deviceName,
     enableChromeSync: typeof val.enableChromeSync === "boolean" ? val.enableChromeSync : false,
     enableWebdav: typeof val.enableWebdav === "boolean" ? val.enableWebdav : false,
     enableOneDrive: typeof val.enableOneDrive === "boolean" ? val.enableOneDrive : false,

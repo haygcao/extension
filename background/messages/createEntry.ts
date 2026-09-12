@@ -2,7 +2,7 @@ import type { PlasmoMessaging } from "@plasmohq/messaging";
 
 import { getClipboardSnapshot, updateClipboardSnapshot } from "~storage/clipboardSnapshot";
 import { getSettings } from "~storage/settings";
-import { createEntry } from "~utils/storage";
+import { createEntry, shouldBlockContentByBlacklist } from "~utils/storage";
 
 import { handleUpdateContextMenusRequest } from "./updateContextMenus";
 
@@ -16,6 +16,16 @@ export type CreateEntryResponseBody = Record<PropertyKey, never>;
 
 export const handleCreateEntryRequest = async (body: CreateEntryRequestBody) => {
   const [clipboardSnapshot, settings] = await Promise.all([getClipboardSnapshot(), getSettings()]);
+
+  if (
+    shouldBlockContentByBlacklist(
+      body.content,
+      settings.enableBlacklistFilter,
+      settings.blacklistKeywords,
+    )
+  ) {
+    return;
+  }
 
   if (clipboardSnapshot === undefined || body.timestamp > clipboardSnapshot.updatedAt) {
     if (body.content !== clipboardSnapshot?.content) {

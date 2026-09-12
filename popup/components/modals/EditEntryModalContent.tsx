@@ -12,9 +12,10 @@ import {
   useMantineTheme,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
-import { IconAlertTriangle } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
+import { IconAlertTriangle, IconCheck, IconCopy } from "@tabler/icons-react";
 import { format } from "date-fns";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -39,12 +40,14 @@ interface Props {
 
 export const EditEntryModalContent = ({ entry }: Props) => {
   const theme = useMantineTheme();
+  const [copied, setCopied] = useState(false);
 
   const {
     control,
     setError,
     handleSubmit,
     reset,
+    getValues,
     formState: { errors, isDirty, isValid, isSubmitting },
   } = useForm<FormValues>({
     defaultValues: {
@@ -53,6 +56,18 @@ export const EditEntryModalContent = ({ entry }: Props) => {
     mode: "all",
     resolver: zodResolver(schema),
   });
+
+  const handleCopyAll = () => {
+    const textToCopy = getValues("content") || entry.content;
+    navigator.clipboard.writeText(textToCopy);
+    setCopied(true);
+    notifications.show({
+      color: "green",
+      title: "已复制",
+      message: "整条内容已一键复制到剪贴板！",
+    });
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const auth = db.useAuth();
   const connectionStatus = db.useConnectionStatus();
@@ -66,25 +81,37 @@ export const EditEntryModalContent = ({ entry }: Props) => {
   return (
     <Paper p="md">
       <Group align="center" position="apart" mb="xs">
-        <Title order={5}>Edit Item</Title>
+        <Group spacing="xs">
+          <Title order={5}>编辑 / 查看剪贴板条目</Title>
+          <Button
+            size="xs"
+            compact
+            color={copied ? "teal" : "indigo"}
+            variant="light"
+            leftIcon={copied ? <IconCheck size="0.9rem" /> : <IconCopy size="0.9rem" />}
+            onClick={handleCopyAll}
+          >
+            {copied ? "已复制全文" : "一键复制全文"}
+          </Button>
+        </Group>
         <CloseButton onClick={() => modals.closeAll()} />
       </Group>
       <Grid gutter={0}>
         <Grid.Col span={4}>
           <Text size="xs" color="dimmed">
-            Character Count
+            字符总数 (Length)
           </Text>
           <Text size="xs">{entry.content.length}</Text>
         </Grid.Col>
         <Grid.Col span={4}>
           <Text size="xs" color="dimmed">
-            Date Created
+            创建时间 (Created)
           </Text>
           <Text size="xs">{format(entry.createdAt, "Pp")}</Text>
         </Grid.Col>
         <Grid.Col span={4}>
           <Text size="xs" color="dimmed">
-            Date Last Copied
+            最近复制 (Last Copied)
           </Text>
           <Text size="xs">{format(getEntryCopiedAt(entry), "Pp")}</Text>
         </Grid.Col>
@@ -100,7 +127,7 @@ export const EditEntryModalContent = ({ entry }: Props) => {
               }
             })}
           >
-            <Stack spacing="xs">
+            <Stack spacing="xs" mt="xs">
               <Controller
                 name="content"
                 control={control}
@@ -109,10 +136,11 @@ export const EditEntryModalContent = ({ entry }: Props) => {
                     {...field}
                     label={
                       <Text size="xs" color="dimmed" fw="normal">
-                        Content
+                        完整内容 (可自由编辑与修改)
                       </Text>
                     }
                     autosize
+                    minRows={4}
                     maxRows={16}
                     size="xs"
                     error={errors.content?.message}
@@ -129,15 +157,24 @@ export const EditEntryModalContent = ({ entry }: Props) => {
                   {isDirty && (
                     <>
                       <IconAlertTriangle size="1.125rem" />
-                      <Text ml={4}>You have unsaved changes.</Text>
+                      <Text ml={4}>您修改了内容，记得保存更改。</Text>
                     </>
                   )}
                 </Text>
                 <Group align="center" spacing="xs">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    color="indigo"
+                    leftIcon={copied ? <IconCheck size="0.9rem" /> : <IconCopy size="0.9rem" />}
+                    onClick={handleCopyAll}
+                  >
+                    一键复制
+                  </Button>
                   <EntryFavoriteAction entryId={entry.id} />
                   <EntryDeleteAction entryId={entry.id} />
                   <Button size="xs" variant="subtle" disabled={!isDirty} onClick={() => reset()}>
-                    Reset
+                    还原修改
                   </Button>
                   <Button
                     size="xs"
@@ -145,7 +182,7 @@ export const EditEntryModalContent = ({ entry }: Props) => {
                     type="submit"
                     loading={isSubmitting}
                   >
-                    Save
+                    保存修改
                   </Button>
                 </Group>
               </Group>

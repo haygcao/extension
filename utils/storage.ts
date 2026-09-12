@@ -70,9 +70,35 @@ export const _setEntries = async (entries: Entry[]) => {
   ]);
 };
 
+export const shouldBlockContentByBlacklist = (
+  content: string,
+  enableFilter: boolean,
+  keywordsStr: string,
+): boolean => {
+  if (!enableFilter || !keywordsStr || !content) return false;
+  const keywords = keywordsStr
+    .split(/[\n,;\t]+/)
+    .map((k) => k.trim())
+    .filter(Boolean);
+  if (keywords.length === 0) return false;
+  const lowerContent = content.toLowerCase();
+  return keywords.some((kw) => lowerContent.includes(kw.toLowerCase()));
+};
+
 // Creates an entry in the provided storage location. If the provided storage location is cloud but
 // the user isn't signed in or isn't subscribed then it should be created locally.
 export const createEntry = async (content: string, storageLocation: StorageLocation) => {
+  const settings = await getSettings();
+  if (
+    shouldBlockContentByBlacklist(
+      content,
+      settings.enableBlacklistFilter,
+      settings.blacklistKeywords,
+    )
+  ) {
+    return Ok(undefined);
+  }
+
   const [refreshToken, user] = await Promise.all([getRefreshToken(), db.getAuth()]);
 
   if (
@@ -116,12 +142,9 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
 
         // Apply cloud item limit.
         try {
-          const [cloudSettingsQuery, settings] = await Promise.all([
-            db.queryOnce({
-              settings: {},
-            }),
-            getSettings(),
-          ]);
+          const cloudSettingsQuery = await db.queryOnce({
+            settings: {},
+          });
 
           const cloudSettings = resolveCloudSettings((cloudSettingsQuery.data.settings as any[])[0]);
 
@@ -152,11 +175,10 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
     }
   }
 
-  const [entries, favoriteEntryIds, pinnedEntryIds, settings] = await Promise.all([
+  const [entries, favoriteEntryIds, pinnedEntryIds] = await Promise.all([
     getEntries(),
     getFavoriteEntryIds(),
     getPinnedEntryIds(),
-    getSettings(),
   ]);
 
   const entryId = createHash("sha256").update(content).digest("hex");
