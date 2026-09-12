@@ -5,6 +5,28 @@ import { ItemSortOption } from "./itemSortOption";
 import { StorageLocation } from "./storageLocation";
 import { Tab } from "./tab";
 
+export interface BlacklistRule {
+  id: string;
+  name: string;
+  keywords: string[];
+  enabled: boolean;
+}
+
+export const defaultBlacklistRules: BlacklistRule[] = [
+  {
+    id: "rule_1",
+    name: "异常错误日志 (Error Log)",
+    keywords: ["error", "exception", "failed"],
+    enabled: true,
+  },
+  {
+    id: "rule_2",
+    name: "敏感密钥与 Token (Secret Token)",
+    keywords: ["token=", "access_token", "secret"],
+    enabled: true,
+  },
+];
+
 // DO NOT REUSE DEPRECATED FIELDS.
 export const defaultSettings = {
   sortItemsBy: ItemSortOption.Enum.DateLastCopied,
@@ -21,10 +43,17 @@ export const defaultSettings = {
   historyRetentionDays: null,
   enableCompression: true,
   enableBlacklistFilter: false,
-  blacklistKeywords: "error, exception, token=, password=",
+  blacklistRules: defaultBlacklistRules,
   displayMode: DisplayMode.Enum.Popup,
   language: "auto",
 };
+
+export const BlacklistRuleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  keywords: z.array(z.string()),
+  enabled: z.boolean(),
+});
 
 export const Settings = z
   .object({
@@ -42,7 +71,7 @@ export const Settings = z
     historyRetentionDays: z.number().nullable().default(defaultSettings.historyRetentionDays),
     enableCompression: z.boolean().default(defaultSettings.enableCompression),
     enableBlacklistFilter: z.boolean().default(defaultSettings.enableBlacklistFilter),
-    blacklistKeywords: z.string().default(defaultSettings.blacklistKeywords),
+    blacklistRules: z.array(BlacklistRuleSchema).default(defaultSettings.blacklistRules),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
     language: z.string().default(defaultSettings.language),
   })

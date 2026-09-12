@@ -21,7 +21,7 @@ export const handleCreateEntryRequest = async (body: CreateEntryRequestBody) => 
     shouldBlockContentByBlacklist(
       body.content,
       settings.enableBlacklistFilter,
-      settings.blacklistKeywords,
+      settings.blacklistRules,
     )
   ) {
     return;

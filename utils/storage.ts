@@ -21,6 +21,7 @@ import { getPinnedEntryIds } from "~storage/pinnedEntryIds";
 import { getRefreshToken } from "~storage/refreshToken";
 import { getSettings } from "~storage/settings";
 import { Entry } from "~types/entry";
+import type { BlacklistRule } from "~types/settings";
 import { StorageLocation } from "~types/storageLocation";
 
 import { resolveCloudSettings } from "./cloudSettings";
@@ -73,16 +74,25 @@ export const _setEntries = async (entries: Entry[]) => {
 export const shouldBlockContentByBlacklist = (
   content: string,
   enableFilter: boolean,
-  keywordsStr: string,
+  rules?: BlacklistRule[],
 ): boolean => {
-  if (!enableFilter || !keywordsStr || !content) return false;
-  const keywords = keywordsStr
-    .split(/[\n,;\t]+/)
-    .map((k) => k.trim())
-    .filter(Boolean);
-  if (keywords.length === 0) return false;
+  if (!enableFilter || !rules || rules.length === 0 || !content) return false;
   const lowerContent = content.toLowerCase();
-  return keywords.some((kw) => lowerContent.includes(kw.toLowerCase()));
+
+  for (const rule of rules) {
+    if (!rule || !rule.enabled || !rule.keywords || rule.keywords.length === 0) continue;
+
+    const validKeywords = rule.keywords.map((k: string) => k.trim().toLowerCase()).filter(Boolean);
+    if (validKeywords.length === 0) continue;
+
+    // 每条规则下的所有关键词必须完美【全部包含 (EVERY)】才触发拦截与彻底删除
+    const isFullMatched = validKeywords.every((kw: string) => lowerContent.includes(kw));
+    if (isFullMatched) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 // Creates an entry in the provided storage location. If the provided storage location is cloud but
@@ -93,7 +103,7 @@ export const createEntry = async (content: string, storageLocation: StorageLocat
     shouldBlockContentByBlacklist(
       content,
       settings.enableBlacklistFilter,
-      settings.blacklistKeywords,
+      settings.blacklistRules,
     )
   ) {
     return Ok(undefined);

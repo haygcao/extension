@@ -3,6 +3,7 @@ import { Storage } from "@plasmohq/storage";
 export type SyncProviderType = "chrome" | "webdav" | "onedrive" | "googledrive" | "none";
 
 export interface SyncSettings {
+  deviceId: string;
   deviceName: string;
   enableChromeSync: boolean;
   enableWebdav: boolean;
@@ -25,6 +26,7 @@ export interface SyncSettings {
 }
 
 const DEFAULT_SYNC_SETTINGS: SyncSettings = {
+  deviceId: "",
   deviceName: "设备 A",
   enableChromeSync: false,
   enableWebdav: false,
@@ -49,15 +51,16 @@ const KEY = "syncSettings";
 
 export const getSyncSettings = async (): Promise<SyncSettings> => {
   const val = (await storage.get<any>(KEY)) || {};
-  let deviceName = val.deviceName;
-  if (!deviceName) {
-    const randomHex = Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0");
-    deviceName = `设备-${randomHex}`;
-    await storage.set(KEY, { ...val, deviceName });
+  let deviceId = val.deviceId;
+  if (!deviceId) {
+    deviceId = "dev_" + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6);
+    await storage.set(KEY, { ...val, deviceId });
   }
+  const deviceName = val.deviceName || "设备 A";
   return {
     ...DEFAULT_SYNC_SETTINGS,
     ...val,
+    deviceId,
     deviceName,
     enableChromeSync: typeof val.enableChromeSync === "boolean" ? val.enableChromeSync : false,
     enableWebdav: typeof val.enableWebdav === "boolean" ? val.enableWebdav : false,

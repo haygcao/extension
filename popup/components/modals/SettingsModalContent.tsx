@@ -120,6 +120,7 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
   const cloudSettings = (settingsQuery.data?.settings as any[] | undefined)?.[0];
 
   const [file, setFile] = useState<File | null>(null);
+  const [deviceId, setDeviceId] = useState<string>("");
   const [testingWebdav, setTestingWebdav] = useState(false);
   const [clearingChrome, setClearingChrome] = useState(false);
   const [authorizingGoogle, setAuthorizingGoogle] = useState(false);
@@ -165,6 +166,7 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
 
   useEffect(() => {
     getSyncSettings().then((s) => {
+      setDeviceId(s.deviceId || "");
       const vals: SyncFormValues = {
         deviceName: s.deviceName || "设备 A",
         enableChromeSync: !!s.enableChromeSync,
@@ -684,13 +686,13 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
 
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
 
-            {/* 5. 关键词黑名单自动拦截删除 */}
+            {/* 5. 多规则关键词黑名单自动拦截删除 */}
             <Stack spacing="xs">
               <Group align="flex-start" spacing="md" position="apart" noWrap>
                 <Stack spacing={0}>
-                  <Title order={6}>关键词黑名单自动拦截 (自动删除垃圾/错误日志)</Title>
+                  <Title order={6}>多规则关键词自动擦除删除 (Auto-Purge Rules)</Title>
                   <Text fz="xs" color="dimmed">
-                    复制包含所设关键词的内容时，剪贴板监控捕抓后直接自动拦截丢弃，不保存、不占用任何存储空间。
+                    可自定义多条过滤规则。每条规则下可设定多个关键词，当剪贴板内容<b>完美包含该规则下的所有关键词</b>时，复制后将立即自动删除抛弃，不留存、不占空间。
                   </Text>
                 </Stack>
                 <Switch
@@ -701,18 +703,134 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
                   }}
                 />
               </Group>
+
               {settings.enableBlacklistFilter !== false && (
-                <Textarea
-                  placeholder="多个关键词可用逗号、分号或换行分隔，例如：error, exception, password=, token="
-                  value={settings.blacklistKeywords || ""}
-                  onChange={async (e) => {
-                    const val = e.target.value;
-                    await setSettings({ ...settings, blacklistKeywords: val });
-                  }}
-                  minRows={2}
-                  maxRows={5}
-                  size="xs"
-                />
+                <Stack spacing="xs" mt="xs">
+                  {(settings.blacklistRules || []).map((rule, ruleIdx) => (
+                    <Paper key={rule.id || ruleIdx} withBorder p="xs" sx={{ position: "relative" }}>
+                      <Group position="apart" align="center" mb="xs">
+                        <Group spacing="xs">
+                          <Switch
+                            size="xs"
+                            checked={rule.enabled}
+                            onChange={async (e) => {
+                              const updated = [...(settings.blacklistRules || [])];
+                              updated[ruleIdx] = { ...rule, enabled: e.target.checked };
+                              await setSettings({ ...settings, blacklistRules: updated });
+                            }}
+                          />
+                          <TextInput
+                            size="xs"
+                            value={rule.name}
+                            onChange={async (e) => {
+                              const updated = [...(settings.blacklistRules || [])];
+                              updated[ruleIdx] = { ...rule, name: e.target.value };
+                              await setSettings({ ...settings, blacklistRules: updated });
+                            }}
+                            placeholder="规则名称 (如: 异常错误日志)"
+                          />
+                        </Group>
+                        <Button
+                          size="xs"
+                          color="red"
+                          variant="subtle"
+                          compact
+                          onClick={async () => {
+                            const updated = (settings.blacklistRules || []).filter((_, idx) => idx !== ruleIdx);
+                            await setSettings({ ...settings, blacklistRules: updated });
+                          }}
+                        >
+                          删除规则
+                        </Button>
+                      </Group>
+
+                      <Text fz="xs" color="dimmed" mb={4}>
+                        必须<b>完美同时全包含</b>以下关键词才删除：
+                      </Text>
+
+                      <Group spacing={4} mb="xs">
+                        {(rule.keywords || []).map((kw, kwIdx) => (
+                          <Badge
+                            key={kwIdx}
+                            size="sm"
+                            variant="filled"
+                            color="indigo"
+                            rightSection={
+                              <CloseButton
+                                size="xs"
+                                onClick={async () => {
+                                  const newKws = (rule.keywords || []).filter((_, idx) => idx !== kwIdx);
+                                  const updated = [...(settings.blacklistRules || [])];
+                                  updated[ruleIdx] = { ...rule, keywords: newKws };
+                                  await setSettings({ ...settings, blacklistRules: updated });
+                                }}
+                              />
+                            }
+                          >
+                            {kw}
+                          </Badge>
+                        ))}
+                      </Group>
+
+                      <Group spacing="xs">
+                        <TextInput
+                          size="xs"
+                          placeholder="输入关键词按 Enter 或点添加"
+                          id={`add-kw-${ruleIdx}`}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter" && e.currentTarget.value.trim()) {
+                              e.preventDefault();
+                              const val = e.currentTarget.value.trim();
+                              const newKws = Array.from(new Set([...(rule.keywords || []), val]));
+                              const updated = [...(settings.blacklistRules || [])];
+                              updated[ruleIdx] = { ...rule, keywords: newKws };
+                              await setSettings({ ...settings, blacklistRules: updated });
+                              e.currentTarget.value = "";
+                            }
+                          }}
+                        />
+                        <Button
+                          size="xs"
+                          variant="light"
+                          onClick={async () => {
+                            const input = document.getElementById(`add-kw-${ruleIdx}`) as HTMLInputElement;
+                            if (input && input.value.trim()) {
+                              const val = input.value.trim();
+                              const newKws = Array.from(new Set([...(rule.keywords || []), val]));
+                              const updated = [...(settings.blacklistRules || [])];
+                              updated[ruleIdx] = { ...rule, keywords: newKws };
+                              await setSettings({ ...settings, blacklistRules: updated });
+                              input.value = "";
+                            }
+                          }}
+                        >
+                          + 添加关键词
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ))}
+
+                  <Button
+                    size="xs"
+                    variant="dashed"
+                    color="indigo"
+                    fullWidth
+                    onClick={async () => {
+                      const newRule = {
+                        id: "rule_" + Date.now(),
+                        name: `自定义规则 ${ (settings.blacklistRules || []).length + 1 }`,
+                        keywords: ["error", "exception"],
+                        enabled: true,
+                      };
+                      await setSettings({
+                        ...settings,
+                        blacklistRules: [...(settings.blacklistRules || []), newRule],
+                      });
+                    }}
+                  >
+                    + 新增匹配规则
+                  </Button>
+                </Stack>
               )}
             </Stack>
           </Stack>
@@ -842,12 +960,21 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
               </Group>
             </Group>
 
-            {/* 设备名称 */}
+            {/* 设备名称与设备唯一ID */}
             <Group align="flex-start" spacing="md" position="apart" noWrap>
               <Stack spacing={0} sx={{ flex: 1 }}>
-                <Title order={6}>设备名称 / Device Name</Title>
+                <Group spacing="xs" align="center">
+                  <Title order={6}>设备名称 / Device Name</Title>
+                  {deviceId && (
+                    <Tooltip label="系统底层生成的永久独立识别码，用于多设备碰撞预防与离线去重" withinPortal>
+                      <Badge size="xs" color="gray" variant="outline">
+                        ID: {deviceId}
+                      </Badge>
+                    </Tooltip>
+                  )}
+                </Group>
                 <Text fz="xs" color="dimmed">
-                  设置当前设备的标识名称（如：设备 A、办公电脑、MacBook 等），用于多端区分与同步状态追踪。
+                  可任意设置当前设备的名字（如：设备 A、办公电脑、MacBook 等），底层自动保留独立唯一的 Device ID 防止冲突。
                 </Text>
               </Stack>
               <Controller
