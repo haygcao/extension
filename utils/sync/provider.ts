@@ -47,16 +47,33 @@ export interface SyncProvider {
 }
 
 /** 自动提取和汇总发现的所有设备注册表 */
-export const extractDiscoveredDevices = (data: CloudData): DeviceInfo[] => {
+export const extractDiscoveredDevices = (data: CloudData, extraDevices: DeviceInfo[] = []): DeviceInfo[] => {
   const map = new Map<string, DeviceInfo>();
 
-  for (const d of data.devices || []) {
+  for (const d of extraDevices) {
     if (d && d.deviceId) {
       map.set(d.deviceId, {
         deviceId: d.deviceId,
         deviceName: d.deviceName || "未知设备",
         lastActive: typeof d.lastActive === "number" ? d.lastActive : Date.now(),
       });
+    }
+  }
+
+  for (const d of data.devices || []) {
+    if (d && d.deviceId) {
+      const existing = map.get(d.deviceId);
+      const active = typeof d.lastActive === "number" ? d.lastActive : Date.now();
+      if (!existing) {
+        map.set(d.deviceId, {
+          deviceId: d.deviceId,
+          deviceName: d.deviceName || "未知设备",
+          lastActive: active,
+        });
+      } else {
+        if (active > existing.lastActive) existing.lastActive = active;
+        if (d.deviceName && d.deviceName !== "未知设备") existing.deviceName = d.deviceName;
+      }
     }
   }
 
@@ -72,7 +89,9 @@ export const extractDiscoveredDevices = (data: CloudData): DeviceInfo[] => {
         });
       } else {
         if (active > existing.lastActive) existing.lastActive = active;
-        if (e.deviceName && e.deviceName !== "在线设备") existing.deviceName = e.deviceName;
+        if (e.deviceName && e.deviceName !== "在线设备" && e.deviceName !== "未知设备") {
+          existing.deviceName = e.deviceName;
+        }
       }
     }
   }
@@ -401,11 +420,13 @@ export const createWebDavProvider = (
   const authHeader = "Basic " + btoa(unescape(encodeURIComponent(`${username}:${password}`)));
   const baseHeaders = { Authorization: authHeader };
 
+  const parts = cleanPath.split("/").filter(Boolean);
+  const folderPath = parts.length > 1 ? "/" + parts.slice(0, -1).join("/") : "/OpenClipSync";
+  const devicesFileUrl = baseUrl + folderPath + "/openclip-devices.json";
+
   // 确保父目录存在 (MKCOL)
   const ensureDirectoryExists = async () => {
-    const parts = cleanPath.split("/").filter(Boolean);
     if (parts.length > 1) {
-      const folderPath = "/" + parts.slice(0, -1).join("/");
       try {
         await fetch(baseUrl + folderPath, {
           method: "MKCOL",
@@ -430,11 +451,23 @@ export const createWebDavProvider = (
             message: "文件就绪（初次同步）",
             itemCount: 0,
           });
-          return { entries: [], settings: [] };
+          return { entries: [], settings: [], devices: [] };
         }
         if (!res.ok) throw new Error(`WebDAV GET 失败: HTTP ${res.status}`);
         const buffer = await res.arrayBuffer();
         const result = await parseRemotePayload(buffer);
+
+        try {
+          const devRes = await fetch(devicesFileUrl, { method: "GET", headers: baseHeaders });
+          if (devRes.ok) {
+            const devText = await devRes.text();
+            const parsedDevs = JSON.parse(devText);
+            if (Array.isArray(parsedDevs)) {
+              result.devices = extractDiscoveredDevices(result, parsedDevs);
+            }
+          }
+        } catch {}
+
         await updateProviderStatus("webdav", {
           status: "success",
           lastSyncTime: Date.now(),
@@ -482,6 +515,20 @@ export const createWebDavProvider = (
           body,
         });
         if (!res.ok) throw new Error(`WebDAV PUT 失败: HTTP ${res.status}`);
+
+        if (Array.isArray(payloadData.devices) && payloadData.devices.length > 0) {
+          try {
+            await fetch(devicesFileUrl, {
+              method: "PUT",
+              headers: {
+                ...baseHeaders,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(payloadData.devices, null, 2),
+            });
+          } catch {}
+        }
+
         await updateProviderStatus("webdav", {
           status: "success",
           lastSyncTime: Date.now(),

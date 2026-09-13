@@ -43,6 +43,7 @@ import { NoEntriesOverlay } from "~popup/components/NoEntriesOverlay";
 import { useEntries } from "~popup/contexts/EntriesContext";
 import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
 import { searchAtom } from "~popup/states/atoms";
+import { getDiscoveredDevices } from "~storage/discoveredDevices";
 import { getSettings, setSettings } from "~storage/settings";
 import {
   getSyncSettings,
@@ -76,38 +77,38 @@ export const CloudPage = () => {
   const [providerTesting, setProviderTesting] = useState<string | null>(null);
 
   const loadStatus = async () => {
-    const [s, st, globalSettings] = await Promise.all([
+    const [s, st, globalSettings, localDevs] = await Promise.all([
       getSyncSettings(),
       getSyncStatus(),
       getSettings(),
+      getDiscoveredDevices(),
     ]);
     setSyncSettings(s);
     setSyncStatus(st);
     setDeviceFilter(globalSettings.syncDeviceFilter || "all");
 
-    // 提取和发现已有的大全套设备注册表
-    const extracted = extractDiscoveredDevices({
-      entries: entries.map((e) => ({
-        id: e.id,
-        emailContentHash: e.id,
-        content: e.content,
-        createdAt: e.createdAt,
-        copiedAt: e.copiedAt,
-      })),
-      settings: [],
-    });
+    const currentDev: DeviceInfo = {
+      deviceId: s.deviceId,
+      deviceName: s.deviceName || "本设备",
+      lastActive: Date.now(),
+    };
 
-    // 补充包含本机
-    if (s.deviceId) {
-      const hasThis = extracted.some((d) => d.deviceId === s.deviceId);
-      if (!hasThis) {
-        extracted.unshift({
-          deviceId: s.deviceId,
-          deviceName: s.deviceName || "本设备",
-          lastActive: Date.now(),
-        });
-      }
-    }
+    // 提取和发现已有的大全套设备注册表
+    const extracted = extractDiscoveredDevices(
+      {
+        entries: entries.map((e) => ({
+          id: e.id,
+          emailContentHash: e.id,
+          content: e.content,
+          createdAt: e.createdAt,
+          copiedAt: e.copiedAt,
+        })),
+        settings: [],
+        devices: [currentDev],
+      },
+      localDevs,
+    );
+
     setDiscoveredDevices(extracted);
   };
 

@@ -4,6 +4,7 @@
  * 实现了本地数据与云端（WebDAV / Chrome Sync / OneDrive / Google Drive）的双向无感同步。
  */
 
+import { getDiscoveredDevices, registerCurrentDevice, setDiscoveredDevices } from "~storage/discoveredDevices";
 import { _setEntryIdToTags, getEntryIdToTags } from "~storage/entryIdToTags";
 import { _setFavoriteEntryIds, getFavoriteEntryIds } from "~storage/favoriteEntryIds";
 import { _setPinnedEntryIds, getPinnedEntryIds } from "~storage/pinnedEntryIds";
@@ -11,11 +12,13 @@ import { getSettings } from "~storage/settings";
 import { getSyncSettings, setSyncStatus } from "~storage/syncSettings";
 import type { Entry } from "~types/entry";
 import {
+  extractDiscoveredDevices,
   getActiveProvider,
   mergeCloudData,
   pruneExpiredAndOversizedEntries,
   type CloudData,
   type CloudEntry,
+  type DeviceInfo,
 } from "~utils/sync/provider";
 import { _setEntries, getEntries } from "~utils/storage";
 
@@ -57,19 +60,25 @@ export const getLocalAsCloudData = async (): Promise<CloudData> => {
     settings.localItemCharacterLimit,
   );
 
+  const registeredDevices = await registerCurrentDevice(syncSettings);
+  const allDevices = extractDiscoveredDevices({ entries: pruned, settings: [] }, registeredDevices);
+
   return {
     entries: pruned,
     settings: [],
+    devices: allDevices,
   };
 };
 
 export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> => {
-  const [existingEntries, existingTags, existingFavs, existingPins, settings] = await Promise.all([
+  const [existingEntries, existingTags, existingFavs, existingPins, settings, syncSettings, localDevices] = await Promise.all([
     getEntries(),
     getEntryIdToTags(),
     getFavoriteEntryIds(),
     getPinnedEntryIds(),
     getSettings(),
+    getSyncSettings(),
+    getDiscoveredDevices(),
   ]);
 
   const entryMap = new Map<string, Entry>();
@@ -123,12 +132,26 @@ export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> 
     }
   }
 
+  // 持续持久化与提取已发现的所有设备列表
+  const allDiscoveredDevices = extractDiscoveredDevices(cloudData, localDevices);
+  const currentDev: DeviceInfo = {
+    deviceId: syncSettings.deviceId,
+    deviceName: syncSettings.deviceName,
+    lastActive: Date.now(),
+  };
+  const finalDevices = extractDiscoveredDevices({ entries: [], settings: [], devices: [currentDev] }, allDiscoveredDevices);
+
   await Promise.all([
     _setEntries(Array.from(entryMap.values())),
     _setEntryIdToTags(updatedTags),
     _setFavoriteEntryIds(Array.from(favSet)),
     _setPinnedEntryIds(Array.from(pinSet)),
+    setDiscoveredDevices(finalDevices),
   ]);
+
+  if (_cache) {
+    _cache.devices = finalDevices;
+  }
 };
 
 // ─── 内部缓存 ───────────────────────────────────────────
