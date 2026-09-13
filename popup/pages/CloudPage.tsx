@@ -25,6 +25,8 @@ import {
   IconCloud,
   IconCloudUpload,
   IconDatabase,
+  IconDevices,
+  IconDeviceLaptop,
   IconFolder,
   IconRefresh,
   IconServer,
@@ -41,6 +43,7 @@ import { NoEntriesOverlay } from "~popup/components/NoEntriesOverlay";
 import { useEntries } from "~popup/contexts/EntriesContext";
 import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
 import { searchAtom } from "~popup/states/atoms";
+import { getSettings, setSettings } from "~storage/settings";
 import {
   getSyncSettings,
   getSyncStatus,
@@ -54,6 +57,8 @@ import {
   createGoogleDriveProvider,
   createOneDriveProvider,
   createWebDavProvider,
+  extractDiscoveredDevices,
+  type DeviceInfo,
 } from "~utils/sync/provider";
 import { defaultBorderColor, lightOrDark } from "~utils/sx";
 
@@ -65,29 +70,68 @@ export const CloudPage = () => {
 
   const [syncSettings, setSyncSettings] = useState<SyncSettings | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [deviceFilter, setDeviceFilter] = useState<string>("all");
+  const [discoveredDevices, setDiscoveredDevices] = useState<DeviceInfo[]>([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [providerTesting, setProviderTesting] = useState<string | null>(null);
 
   const loadStatus = async () => {
-    const [s, st] = await Promise.all([getSyncSettings(), getSyncStatus()]);
+    const [s, st, globalSettings] = await Promise.all([
+      getSyncSettings(),
+      getSyncStatus(),
+      getSettings(),
+    ]);
     setSyncSettings(s);
     setSyncStatus(st);
+    setDeviceFilter(globalSettings.syncDeviceFilter || "all");
+
+    // 提取和发现已有的大全套设备注册表
+    const extracted = extractDiscoveredDevices({
+      entries: entries.map((e) => ({
+        id: e.id,
+        emailContentHash: e.id,
+        content: e.content,
+        createdAt: e.createdAt,
+        copiedAt: e.copiedAt,
+      })),
+      settings: [],
+    });
+
+    // 补充包含本机
+    if (s.deviceId) {
+      const hasThis = extracted.some((d) => d.deviceId === s.deviceId);
+      if (!hasThis) {
+        extracted.unshift({
+          deviceId: s.deviceId,
+          deviceName: s.deviceName || "本设备",
+          lastActive: Date.now(),
+        });
+      }
+    }
+    setDiscoveredDevices(extracted);
   };
 
   useEffect(() => {
     loadStatus();
-  }, []);
+  }, [entries]);
 
-  const handleManualSyncAll = async () => {
+  const handleManualSyncAll = async (targetDeviceId?: string) => {
     setSyncingAll(true);
     try {
+      if (targetDeviceId !== undefined) {
+        const currentSettings = await getSettings();
+        await setSettings({ ...currentSettings, syncDeviceFilter: targetDeviceId });
+        setDeviceFilter(targetDeviceId);
+      }
       const res = await db.sync();
       await loadStatus();
       if (res.success) {
         notifications.show({
           color: "green",
-          title: "全端同步完成",
-          message: `成功同步 ${res.itemCount} 条剪贴板历史记录到已启用的存储服务。`,
+          title: "同步成功",
+          message: targetDeviceId && targetDeviceId !== "all"
+            ? `已指定拉取与恢复设备中的数据历史`
+            : `全端所有设备数据双向融合同步完成！`,
         });
       } else {
         notifications.show({
@@ -112,7 +156,7 @@ export const CloudPage = () => {
           syncSettings.webdavUrl,
           syncSettings.webdavUsername,
           syncSettings.webdavPassword,
-          syncSettings.webdavPath || "/openclip-sync.json",
+          syncSettings.webdavPath || "/OpenClipSync/openclip-sync.json",
         );
         await p.pull();
       } else if (providerName === "onedrive") {
@@ -199,11 +243,16 @@ export const CloudPage = () => {
                     多端云同步管理中心
                   </Text>
                   <Badge size="xs" color="indigo" variant="light">
-                    {syncSettings?.deviceName || "设备 A"}
+                    {syncSettings?.deviceName || "本设备"}
                   </Badge>
+                  {deviceFilter !== "all" && (
+                    <Badge size="xs" color="orange" variant="filled">
+                      过滤器: 仅特定设备
+                    </Badge>
+                  )}
                 </Group>
                 <Text fz="xs" color="dimmed">
-                  已启用 {hasAnyEnabled ? "多端复合同步" : "无（未配置）"} | 总条目: {entries.length} | 上次总同步: {formatLastSync(syncStatus?.lastSyncTime)}
+                  已启用 {hasAnyEnabled ? "多端复合同步" : "无（未配置）"} | 已找到 {discoveredDevices.length} 个同步设备 | 上次总同步: {formatLastSync(syncStatus?.lastSyncTime)}
                 </Text>
               </Stack>
             </Group>
@@ -215,7 +264,7 @@ export const CloudPage = () => {
                   variant="filled"
                   leftIcon={<IconRefresh size="0.85rem" />}
                   loading={syncingAll}
-                  onClick={handleManualSyncAll}
+                  onClick={() => handleManualSyncAll()}
                 >
                   立即全端同步
                 </Button>
@@ -227,6 +276,87 @@ export const CloudPage = () => {
               </Tooltip>
             </Group>
           </Group>
+
+          <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
+          {/* 发现的同步设备卡片墙与专属拉取按钮 */}
+          <Stack spacing={4}>
+            <Group position="apart" align="center">
+              <Group spacing={6} align="center">
+                <IconDevices size="0.95rem" color={theme.colors.indigo[6]} />
+                <Text fz="xs" fw={700}>
+                  已检测到的同步设备列表 ({discoveredDevices.length})
+                </Text>
+              </Group>
+              {deviceFilter !== "all" && (
+                <Button
+                  size="xs"
+                  compact
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => handleManualSyncAll("all")}
+                >
+                  重置为全量合并 (Merge All)
+                </Button>
+              )}
+            </Group>
+
+            <Group spacing="xs" noWrap sx={{ overflowX: "auto", pb: 2 }}>
+              {discoveredDevices.map((dev) => {
+                const isCurrentThis = dev.deviceId === syncSettings?.deviceId;
+                const isSelectedFilter = deviceFilter === dev.deviceId;
+
+                return (
+                  <Paper
+                    key={dev.deviceId}
+                    withBorder
+                    p="xs"
+                    radius="sm"
+                    bg={
+                      isSelectedFilter
+                        ? lightOrDark(theme, theme.colors.indigo[0], theme.fn.darken(theme.colors.indigo[9], 0.6))
+                        : lightOrDark(theme, "white", "dark.6")
+                    }
+                    sx={{ minWidth: 170, flexShrink: 0 }}
+                  >
+                    <Stack spacing={4}>
+                      <Group position="apart" align="center" noWrap>
+                        <Group spacing={4} noWrap>
+                          <IconDeviceLaptop size="0.9rem" />
+                          <Text fz="xs" fw={600} truncate sx={{ maxWidth: 90 }}>
+                            {dev.deviceName || "设备"}
+                          </Text>
+                        </Group>
+                        {isCurrentThis && (
+                          <Badge size="xs" color="indigo" variant="outline">
+                            本机
+                          </Badge>
+                        )}
+                      </Group>
+                      <Text fz={10} color="dimmed" truncate>
+                        ID: {dev.deviceId.slice(0, 10)}...
+                      </Text>
+                      <Group position="apart" align="center" mt={2}>
+                        <Text fz={10} color="dimmed">
+                          {formatLastSync(dev.lastActive)}
+                        </Text>
+                        <Button
+                          size="xs"
+                          compact
+                          variant={isSelectedFilter ? "filled" : "light"}
+                          color={isSelectedFilter ? "indigo" : "gray"}
+                          loading={syncingAll}
+                          onClick={() => handleManualSyncAll(dev.deviceId)}
+                        >
+                          {isSelectedFilter ? "生效中" : "仅拉取此设备"}
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Group>
+          </Stack>
 
           <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
 

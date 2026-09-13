@@ -27,9 +27,16 @@ export interface CloudEntry {
   tags?: string; // JSON string of string[]
 }
 
+export interface DeviceInfo {
+  deviceId: string;
+  deviceName: string;
+  lastActive: number;
+}
+
 export interface CloudData {
   entries: CloudEntry[];
   settings: { id: string; cloudItemLimit: number | null }[];
+  devices?: DeviceInfo[];
 }
 
 export interface SyncProvider {
@@ -38,6 +45,40 @@ export interface SyncProvider {
   pull(): Promise<CloudData>;
   push(data: CloudData): Promise<void>;
 }
+
+/** 自动提取和汇总发现的所有设备注册表 */
+export const extractDiscoveredDevices = (data: CloudData): DeviceInfo[] => {
+  const map = new Map<string, DeviceInfo>();
+
+  for (const d of data.devices || []) {
+    if (d && d.deviceId) {
+      map.set(d.deviceId, {
+        deviceId: d.deviceId,
+        deviceName: d.deviceName || "未知设备",
+        lastActive: typeof d.lastActive === "number" ? d.lastActive : Date.now(),
+      });
+    }
+  }
+
+  for (const e of data.entries || []) {
+    if (e && e.deviceId) {
+      const active = e.copiedAt || e.createdAt || Date.now();
+      const existing = map.get(e.deviceId);
+      if (!existing) {
+        map.set(e.deviceId, {
+          deviceId: e.deviceId,
+          deviceName: e.deviceName || "在线设备",
+          lastActive: active,
+        });
+      } else {
+        if (active > existing.lastActive) existing.lastActive = active;
+        if (e.deviceName && e.deviceName !== "在线设备") existing.deviceName = e.deviceName;
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => b.lastActive - a.lastActive);
+};
 
 /** 原生 Gzip 压缩与解压（利用现代浏览器原生 CompressionStream API） */
 export const compressToGzip = async (text: string): Promise<Uint8Array> => {
@@ -60,7 +101,7 @@ export const isGzipData = (bytes: Uint8Array): boolean => {
 
 /** 智能解析：支持解析纯 JSON 文本、ArrayBuffer 以及 Gzip 压缩二进制流 */
 export const parseRemotePayload = async (payload: any): Promise<CloudData> => {
-  if (!payload) return { entries: [], settings: [] };
+  if (!payload) return { entries: [], settings: [], devices: [] };
 
   try {
     let jsonStr = "";
@@ -80,7 +121,7 @@ export const parseRemotePayload = async (payload: any): Promise<CloudData> => {
   } catch (err) {
     console.warn("Failed to parse remote payload:", err);
   }
-  return { entries: [], settings: [] };
+  return { entries: [], settings: [], devices: [] };
 };
 
 /** 根据保留周期（天数）与字符上限对条目进行安全裁剪与过期淘汰（置顶/收藏项永久豁免） */
@@ -120,10 +161,18 @@ export const pruneExpiredAndOversizedEntries = (
 
 /** 安全解析从远端拉取的各类 JSON 结构（支持对象 { entries } 或纯数组 [ ... ]） */
 export const parseRemoteJson = (data: any): CloudData => {
-  if (!data) return { entries: [], settings: [] };
+  if (!data) return { entries: [], settings: [], devices: [] };
+
+  const parsedDevices: DeviceInfo[] = Array.isArray(data.devices)
+    ? data.devices.map((d: any) => ({
+        deviceId: d.deviceId || "",
+        deviceName: d.deviceName || "设备",
+        lastActive: typeof d.lastActive === "number" ? d.lastActive : Date.now(),
+      })).filter((d: any) => !!d.deviceId)
+    : [];
 
   if (Array.isArray(data.entries)) {
-    return {
+    const parsedData: CloudData = {
       entries: data.entries.map((e: any) => {
         const text = typeof e.content === "string" ? e.content : typeof e.text === "string" ? e.text : "";
         const id = e.id || createHash("sha256").update(text).digest("hex");
@@ -141,11 +190,14 @@ export const parseRemoteJson = (data: any): CloudData => {
         };
       }),
       settings: Array.isArray(data.settings) ? data.settings : [],
+      devices: parsedDevices,
     };
+    parsedData.devices = extractDiscoveredDevices(parsedData);
+    return parsedData;
   }
 
   if (Array.isArray(data)) {
-    return {
+    const parsedData: CloudData = {
       entries: data.map((e: any) => {
         const text = typeof e.content === "string" ? e.content : typeof e.text === "string" ? e.text : "";
         const id = e.id || createHash("sha256").update(text).digest("hex");
@@ -163,10 +215,13 @@ export const parseRemoteJson = (data: any): CloudData => {
         };
       }),
       settings: [],
+      devices: parsedDevices,
     };
+    parsedData.devices = extractDiscoveredDevices(parsedData);
+    return parsedData;
   }
 
-  return { entries: [], settings: [] };
+  return { entries: [], settings: [], devices: [] };
 };
 
 /** 多设备双向合并与自动去重：按文本内容自动去重合并，相同内容保留最新时间戳与标签并集 */
@@ -220,10 +275,14 @@ export const mergeCloudData = (local: CloudData, remote: CloudData): CloudData =
   for (const s of remote.settings || []) if (s?.id) sMap.set(s.id, s);
   for (const s of local.settings || []) if (s?.id) sMap.set(s.id, s);
 
-  return {
+  const mergedData: CloudData = {
     entries: Array.from(contentMap.values()),
     settings: Array.from(sMap.values()),
+    devices: [...(local.devices || []), ...(remote.devices || [])],
   };
+
+  mergedData.devices = extractDiscoveredDevices(mergedData);
+  return mergedData;
 };
 
 // ─────────────────────────────────────────────
