@@ -44,6 +44,7 @@ export const defaultSettings = {
   enableCompression: true,
   enableBlacklistFilter: false,
   blacklistRules: defaultBlacklistRules,
+  syncDeviceFilter: "all",
   displayMode: DisplayMode.Enum.Popup,
   language: "auto",
 };
@@ -72,6 +73,7 @@ export const Settings = z
     enableCompression: z.boolean().default(defaultSettings.enableCompression),
     enableBlacklistFilter: z.boolean().default(defaultSettings.enableBlacklistFilter),
     blacklistRules: z.array(BlacklistRuleSchema).default(defaultSettings.blacklistRules),
+    syncDeviceFilter: z.string().default(defaultSettings.syncDeviceFilter),
     displayMode: DisplayMode.default(defaultSettings.displayMode),
     language: z.string().default(defaultSettings.language),
   })

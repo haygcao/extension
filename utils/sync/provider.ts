@@ -21,6 +21,9 @@ export interface CloudEntry {
   createdAt: number;
   copiedAt?: number | null;
   isFavorited?: boolean;
+  isPinned?: boolean;
+  deviceId?: string;
+  deviceName?: string;
   tags?: string; // JSON string of string[]
 }
 
@@ -96,7 +99,7 @@ export const pruneExpiredAndOversizedEntries = (
     .filter((item) => {
       if (!item || typeof item.content !== "string") return false;
       // 置顶或收藏的条目拥有永久保留特权
-      if (item.isFavorited) return true;
+      if (item.isFavorited || item.isPinned) return true;
       // 检查过期时间
       if (cutoffTime !== null) {
         const lastActive = item.copiedAt || item.createdAt || 0;
@@ -131,6 +134,9 @@ export const parseRemoteJson = (data: any): CloudData => {
           createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
           copiedAt: typeof e.copiedAt === "number" ? e.copiedAt : e.createdAt || Date.now(),
           isFavorited: !!(e.isFavorited || e.isFavorite),
+          isPinned: !!(e.isPinned || e.pinned),
+          deviceId: typeof e.deviceId === "string" ? e.deviceId : undefined,
+          deviceName: typeof e.deviceName === "string" ? e.deviceName : undefined,
           tags: typeof e.tags === "string" ? e.tags : Array.isArray(e.tags) ? JSON.stringify(e.tags) : undefined,
         };
       }),
@@ -150,6 +156,9 @@ export const parseRemoteJson = (data: any): CloudData => {
           createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
           copiedAt: typeof e.copiedAt === "number" ? e.copiedAt : e.createdAt || Date.now(),
           isFavorited: !!(e.isFavorited || e.isFavorite),
+          isPinned: !!(e.isPinned || e.pinned),
+          deviceId: typeof e.deviceId === "string" ? e.deviceId : undefined,
+          deviceName: typeof e.deviceName === "string" ? e.deviceName : undefined,
           tags: typeof e.tags === "string" ? e.tags : Array.isArray(e.tags) ? JSON.stringify(e.tags) : undefined,
         };
       }),
@@ -199,6 +208,9 @@ export const mergeCloudData = (local: CloudData, remote: CloudData): CloudData =
             : existingCreated || itemCreated,
         copiedAt: Math.max(existingCopied, itemCopied),
         isFavorited: existing.isFavorited || item.isFavorited,
+        isPinned: existing.isPinned || item.isPinned,
+        deviceId: item.deviceId || existing.deviceId,
+        deviceName: item.deviceName || existing.deviceName,
         tags: mergedTags,
       });
     }

@@ -8,7 +8,7 @@ import { _setEntryIdToTags, getEntryIdToTags } from "~storage/entryIdToTags";
 import { _setFavoriteEntryIds, getFavoriteEntryIds } from "~storage/favoriteEntryIds";
 import { _setPinnedEntryIds, getPinnedEntryIds } from "~storage/pinnedEntryIds";
 import { getSettings } from "~storage/settings";
-import { setSyncStatus } from "~storage/syncSettings";
+import { getSyncSettings, setSyncStatus } from "~storage/syncSettings";
 import type { Entry } from "~types/entry";
 import {
   getActiveProvider,
@@ -27,12 +27,13 @@ export interface DbData {
 }
 
 export const getLocalAsCloudData = async (): Promise<CloudData> => {
-  const [entries, entryIdToTags, favoriteIds, pinnedIds, settings] = await Promise.all([
+  const [entries, entryIdToTags, favoriteIds, pinnedIds, settings, syncSettings] = await Promise.all([
     getEntries(),
     getEntryIdToTags(),
     getFavoriteEntryIds(),
     getPinnedEntryIds(),
     getSettings(),
+    getSyncSettings(),
   ]);
   const favSet = new Set(favoriteIds);
   const pinSet = new Set(pinnedIds);
@@ -43,7 +44,10 @@ export const getLocalAsCloudData = async (): Promise<CloudData> => {
     content: e.content,
     createdAt: e.createdAt,
     copiedAt: e.copiedAt || e.createdAt,
-    isFavorited: favSet.has(e.id) || pinSet.has(e.id),
+    isFavorited: favSet.has(e.id),
+    isPinned: pinSet.has(e.id),
+    deviceId: syncSettings.deviceId,
+    deviceName: syncSettings.deviceName,
     tags: entryIdToTags[e.id]?.length ? JSON.stringify(entryIdToTags[e.id]) : undefined,
   }));
 
@@ -60,20 +64,31 @@ export const getLocalAsCloudData = async (): Promise<CloudData> => {
 };
 
 export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> => {
-  const [existingEntries, existingTags, existingFavs] = await Promise.all([
+  const [existingEntries, existingTags, existingFavs, existingPins, settings] = await Promise.all([
     getEntries(),
     getEntryIdToTags(),
     getFavoriteEntryIds(),
+    getPinnedEntryIds(),
+    getSettings(),
   ]);
 
   const entryMap = new Map<string, Entry>();
   for (const e of existingEntries) entryMap.set(e.content, e);
 
   const favSet = new Set(existingFavs);
+  const pinSet = new Set(existingPins);
   const updatedTags = { ...existingTags };
+
+  // 按设备筛选拦截逻辑 (Device Filter)
+  const deviceFilter = settings.syncDeviceFilter;
 
   for (const ce of cloudData.entries) {
     if (!ce || !ce.content) continue;
+    // 如果设置了指定从某台设备拉取，跳过非该设备的数据
+    if (deviceFilter && deviceFilter !== "all" && ce.deviceId && ce.deviceId !== deviceFilter) {
+      continue;
+    }
+
     const existing = entryMap.get(ce.content);
     if (!existing) {
       entryMap.set(ce.content, {
@@ -83,6 +98,7 @@ export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> 
         copiedAt: ce.copiedAt || ce.createdAt,
       });
       if (ce.isFavorited) favSet.add(ce.id);
+      if (ce.isPinned) pinSet.add(ce.id);
       if (ce.tags) {
         try {
           const parsed = JSON.parse(ce.tags);
@@ -93,6 +109,7 @@ export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> 
       existing.createdAt = Math.min(existing.createdAt, ce.createdAt);
       existing.copiedAt = Math.max(existing.copiedAt || 0, ce.copiedAt || 0);
       if (ce.isFavorited) favSet.add(existing.id);
+      if (ce.isPinned) pinSet.add(existing.id);
       if (ce.tags) {
         try {
           const parsed = JSON.parse(ce.tags);
@@ -110,6 +127,7 @@ export const saveCloudDataToLocal = async (cloudData: CloudData): Promise<void> 
     _setEntries(Array.from(entryMap.values())),
     _setEntryIdToTags(updatedTags),
     _setFavoriteEntryIds(Array.from(favSet)),
+    _setPinnedEntryIds(Array.from(pinSet)),
   ]);
 };
 

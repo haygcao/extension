@@ -988,6 +988,33 @@ export const SettingsModalContent = ({ defaultTab = "general" }: { defaultTab?: 
 
             <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
 
+            {/* 数据拉取设备源控制 (Device Source Strategy) */}
+            <Group align="flex-start" spacing="md" position="apart" noWrap>
+              <Stack spacing={0} sx={{ flex: 1 }}>
+                <Title order={6}>数据同步与拉取源策略 (Data Source Filter)</Title>
+                <Text fz="xs" color="dimmed">
+                  可选择双向合并所有设备的数据，或仅拉取/恢复特定设备（如仅 A 设备或仅 B 设备）的剪贴板历史。
+                </Text>
+              </Stack>
+              <Select
+                size="xs"
+                w={180}
+                value={settings.syncDeviceFilter || "all"}
+                onChange={async (newVal) => {
+                  if (newVal) {
+                    await setSettings({ ...settings, syncDeviceFilter: newVal });
+                  }
+                }}
+                data={[
+                  { value: "all", label: "所有设备双向合并 (All)" },
+                  ...(deviceId ? [{ value: deviceId, label: `仅当前设备 (${syncForm.watch("deviceName") || "本设备"})` }] : []),
+                ]}
+                withinPortal
+              />
+            </Group>
+
+            <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
+
             {/* 1. Chrome Sync */}
             <Stack spacing="xs">
               <Group align="center" position="apart" noWrap>
