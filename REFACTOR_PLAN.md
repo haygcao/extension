@@ -1,12 +1,13 @@
-# OpenClip Sync — 代码彻底剥离与全新架构重写计划书 (Refactor & Rewrite Plan)
+# OpenClip Sync — 代码剥离、DB预留与三态 UX 交互重载计划书
 
 ## 📌 一、 重构背景与核心目标
 
 当前项目是在原开源项目 `clipboard-history` 基础上演进而来。随着 **OpenClip Sync** 功能的不断深化（如自研双向同步内核、WebDAV 压缩传输、黑名单全词拦截引擎、多设备发现卡片墙等），原项目的许多设计理念已成为沉重的技术负债：
 
-1. **逻辑与交互不一致**：原项目依赖第三方 InstantDB 云服务及复杂的上下文代理，交互繁琐混乱，且包含大量废弃的功能引导（如第三方 OAuth 流程教学、复杂的浮动窗口分配逻辑等）。
-2. **代码冗余严重**：存在 over-engineered 的状态分散管理（Jotai atoms 与 4+ 个 Context 嵌套）、1300+ 行臃肿的设置弹窗、已废弃的数据库 Schema (`instant.schema.ts`)。
-3. **版权与自主可控风险**：为了彻底消除许可协议及版权争议，必须将项目代码与原作者的交互界面、逻辑链路及品牌遗留进行 **100% 剥离与全新重写 (Fresh Rewrite)**。
+1. **逻辑与交互不一致**：原项目依赖第三方 InstantDB 云服务及复杂的上下文代理，交互繁琐混乱，包含大量废弃的第三方教程与臃肿布局。
+2. **代码冗余与依赖过载**：存在过度的状态分散管理（Jotai atoms 与 4+ 个 Context 嵌套）、1300+ 行臃肿的设置弹窗、已废弃的数据库 Schema。
+3. **数据库兼容性与极致轻量化**：**保留数据库接口解耦能力**（为未来可能接入 SQLite WASM / 自建 Lightweight API 预留插件化插槽），但放弃笨重的第三方 SDK，采用**零内存常驻、最轻量**的抽象层架构。
+4. **版权与自主可控风险**：为了彻底消除许可协议及版权争议，必须将项目代码与原作者的交互界面、逻辑链路及品牌遗留进行 **100% 剥离与全新重写 (Fresh Rewrite)**。
 
 ---
 
@@ -20,9 +21,28 @@
 
 ---
 
-## 🎨 三、 全新界面 (UI) 与交互 (Fresh UX) 设计蓝图
+## 🗄️ 三、 轻量级 DB 抽象层设计 (Lightweight DB Adapter)
 
-我们将抛弃原有的混乱布局，按照 **现代极简、直观高效** 的原则全新构建界面：
+针对后续可能的数据库扩展，我们将建立一套**极低内存开销、高度解耦**的 DB 适配器架构：
+
+```ts
+export interface OpenClipDbAdapter {
+  name: string;
+  isAvailable(): Promise<boolean>;
+  getEntries(query?: Record<string, unknown>): Promise<Entry[]>;
+  saveEntries(entries: Entry[]): Promise<void>;
+  deleteEntries(ids: string[]): Promise<void>;
+}
+```
+
+- **默认实现**：`LocalIndexedDbAdapter`（基于浏览器原生 IndexedDB，内存占用接近零，无需加载任何大型云端 SDK）。
+- **预留插槽**：`RemoteDbAdapter`（未来可无缝插拔 SQLite WASM 或自建 API，绝不影响前端 UI 与同步业务逻辑）。
+
+---
+
+## 🎨 四、 三态 UI 与人体工学交互重构 (Fresh UX Design)
+
+不再照搬原作者混乱的交互逻辑，针对扩展的三种常见形态（Popup / Floating Window / SidePanel）进行极致方便好用的定制：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -36,47 +56,26 @@
 │ │ 📌 示例剪贴板内容 A               [仅拉取此设备] [复制] │ │
 │ │ 🏷️ #Code  🕒 2分钟前  💻 办公电脑                        │ │
 │ └─────────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ 示例剪贴板内容 B                                [复制] │ │
-│ │ 🕒 10分钟前  💻 MacBook Air                             │ │
-│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 1. 交互重构重点
-- **全新的极简设置中心 (Fresh Settings Modal)**：
-  - 彻底去除无用教程，分四大清晰面板：
-    1. **常规配置**：历史保留天数、单条字符上限、系统通知。
-    2. **多云同步**：WebDAV（URL/账号/密码/压缩）、Chrome Sync、OneDrive、Google Drive 简明切开。
-    3. **自动清理规则**：直观的黑名单多词匹配组管理（支持一键添加/禁用/删除）。
-    4. **备份导出**：标准的 JSON / CSV 导出与导入。
-- **全新的卡片化列表 (Fresh List Components)**：
-  - 列表项支持高亮显示设备来源（如 `💻 办公电脑`）。
-  - 操作栏直观集成：`一键复制` | `置顶 Pin` | `收藏 Favorite` | `打标签 Tag` | `加入自动清理`。
+### 1. 三种形态的精细化 UX 定制
+1. **Popup 快捷弹窗模式（默认 400x560）**：
+   - **定位**：零延迟闪速查找与复制。
+   - **交互**：弹出时搜索框自动获得焦点；按 `Enter` 快捷复制第 1 条历史；按 `Esc` 快捷关闭。
+2. **Floating 独立悬浮窗模式 (窗口化常驻)**：
+   - **定位**：多任务协同工具箱。
+   - **交互**：支持窗口自由拉伸调节大小；窗口顶部提供“始终置顶”切换按钮；支持多选历史批量合并复制。
+3. **SidePanel 侧边栏模式 (Chrome 侧栏伴随)**：
+   - **定位**：沉浸式工作流伴随。
+   - **交互**：纵向高利用率布局，自动随网页滚动；支持一键将历史卡片拖拽/点击直接填充入网页当前焦点输入框。
 
----
-
-## 🏗️ 四、 架构剥离与重载方案 (Architectural Architecture)
-
-### 1. 归一化数据存储层 (`utils/db/core.ts`)
-- 废弃 InstantDB 风格的 `TxOp` 复杂 DSL 语法，改用极其直观的 Local-First Store 模式：
-  ```ts
-  // 简化的核心接口
-  export const db = {
-    getEntries: () => Promise<Entry[]>,
-    saveEntry: (entry: Partial<Entry>) => Promise<void>,
-    deleteEntry: (id: string) => Promise<void>,
-    sync: () => Promise<SyncResult>,
-  };
-  ```
-
-### 2. 统一的数据响应式 Hook (`useOpenClipStore`)
-- 用单一数据源 Hook 替代 Jotai atoms + 多 Context 架构：
-  ```ts
-  export const useOpenClipStore = () => {
-    // 统一管理 entries, favoriteIds, pinnedIds, tags, devices
-  };
-  ```
+### 2. 全新 Setting 重构方案
+- 放弃 1300 行复杂嵌套，改为直观的 4 大切片面板：
+  1. **常规首选项**：保留天数、单条限制、显示模式切换。
+  2. **多云同步中心**：WebDAV（URL/账号/密码/压缩）、Chrome Sync、OneDrive、Google Drive。
+  3. **自动清理规则引擎**：多词组合黑名单规则添加、禁用与测试。
+  4. **数据备份导出**：标准的 JSON/CSV 导入导出。
 
 ---
 
@@ -84,11 +83,11 @@
 
 | 阶段 | 实施内容 | 目标状态 |
 | :--- | :--- | :--- |
-| **Phase 1: 瘦身剥离** | 删除 `instant.schema.ts`，卸载 `@instantdb` 依赖，重构 `utils/db/core.ts` 去除复杂 Proxy。 | 代码体积减少 30%，彻底脱离原后端残留 |
+| **Phase 1: 瘦身剥离与 DB 抽象** | 卸载 `@instantdb` 依赖，重构 `utils/db/core.ts` 为最轻量 `OpenClipDbAdapter` 模式。 | 内存占用降至最低，为未来扩展留出无缝插槽 |
 | **Phase 2: Fresh Settings 模块** | 全新重写 `SettingsModalContent.tsx`，将 1300 行代码缩减至 300 行结构清晰的组件。 | 设置界面焕然一新，零原作者逻辑残留 |
-| **Phase 3: Fresh Popup 主界面** | 重构 `popup/App.tsx` 与列表展示，应用统一的新外观与卡片组件。 | 交互简洁明快，设备卡片与黑名单无缝协同 |
+| **Phase 3: 三态 UI/UX 优化** | 针对 Popup、Floating Window、SidePanel 分别实现焦点控制、快速复制与侧栏伴随体验。 | 界面方便好用，三种形态体验极致顺畅 |
 | **Phase 4: 终极审查** | 全局清理无用 i18n 键、废弃类型与遗留注释，完成 100% 干净打包。 | 具备完全独立的自主知识产权 |
 
 ---
 
-> 💡 **备注**：当前已完成重构计划书编写，代码改动将在下一步按 Phase 逐步落地。
+> 💡 **备注**：计划书已更新完成，后续代码修改将按此精细化方案逐步落地。
