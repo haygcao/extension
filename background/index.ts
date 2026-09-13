@@ -150,7 +150,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await Promise.all([
     details.reason === chrome.runtime.OnInstalledReason.INSTALL &&
       setClipboardMonitorIsEnabled(true),
-    chrome.runtime.setUninstallURL("https://www.clipboardhistory.io/uninstall-form"),
     setupOffscreenDocument(),
     setupAction(),
     handleUpdateContextMenusRequest(),

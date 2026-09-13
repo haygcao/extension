@@ -159,7 +159,7 @@ export const App = () => {
                     await updateChangelogViewedAt();
 
                     await chrome.tabs.create({
-                      url: "https://github.com/ayoung19/clipboard-history/releases",
+                      url: "https://github.com/haygcao/extension/releases",
                     });
 
                     if (!isFloatingPopup && !isSidePanel) {
@@ -183,7 +183,7 @@ export const App = () => {
                 variant="light"
                 color="indigo.5"
                 component="a"
-                href="https://www.clipboardhistory.io/support"
+                href="https://ko-fi.com/cue322631"
                 target="_blank"
               >
                 <IconHeart size="1.125rem" />
