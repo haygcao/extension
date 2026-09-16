@@ -79,15 +79,28 @@ export interface OpenClipDbAdapter {
 
 ---
 
-## 🚀 五、 分阶段实施路线图 (Phase-by-Phase Roadmap)
+## 🔗 五、 扩展融合计划：吸纳 `konode` 架构理念 (`konabe-studio/konode`)
+
+在重构过程中，我们将评估并合并 [konode (konabe-studio/konode)](https://github.com/konabe-studio/konode.git) 项目的核心优秀设计理念：
+
+1. **“No Middleman, Storage You Own” 去中心化自主存储体系**：
+   - 吸纳 `konode` 零中间商服务器、全透明自主存储的思想。
+   - 强化 OpenClip Sync 的 WebDAV / 独立 Cloud 文件数据安全与全端设备对齐能力，杜绝第三方云服务器的侵入与中间人风险。
+2. **模块化浏览器数据同步适配器 (Modular Browser Storage Adapter)**：
+   - 借鉴 `konode` 在浏览器扩展中对本地数据与云端 Storage 统一调度的抽象方式。
+   - 使 OpenClip Sync 的剪贴板历史、多设备注册表与配置项的底层同步结构更加模块化与插件化，为以后拓展多模态浏览器数据同步奠定基础。
+
+---
+
+## 🚀 六、 分阶段实施路线图 (Phase-by-Phase Roadmap)
 
 | 阶段 | 实施内容 | 目标状态 |
 | :--- | :--- | :--- |
-| **Phase 1: 瘦身剥离与 DB 抽象** | 卸载 `@instantdb` 依赖，重构 `utils/db/core.ts` 为最轻量 `OpenClipDbAdapter` 模式。 | 内存占用降至最低，为未来扩展留出无缝插槽 |
+| **Phase 1: 瘦身剥离与 DB 抽象** | 卸载 `@instantdb` 依赖，重构 `utils/db/core.ts` 为最轻量 `OpenClipDbAdapter` 模式，融合 `konode` 的 Storage 调度理念。 | 内存占用降至最低，为未来扩展留出无缝插槽 |
 | **Phase 2: Fresh Settings 模块** | 全新重写 `SettingsModalContent.tsx`，将 1300 行代码缩减至 300 行结构清晰的组件。 | 设置界面焕然一新，零原作者逻辑残留 |
 | **Phase 3: 三态 UI/UX 优化** | 针对 Popup、Floating Window、SidePanel 分别实现焦点控制、快速复制与侧栏伴随体验。 | 界面方便好用，三种形态体验极致顺畅 |
 | **Phase 4: 终极审查** | 全局清理无用 i18n 键、废弃类型与遗留注释，完成 100% 干净打包。 | 具备完全独立的自主知识产权 |
 
 ---
 
-> 💡 **备注**：计划书已更新完成，后续代码修改将按此精细化方案逐步落地。
+> 💡 **备注**：计划书已更新完成，已将 `konode` 库的合并考量写入 Plan。后续代码修改将按此精细化方案逐步落地。
