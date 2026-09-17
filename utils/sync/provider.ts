@@ -423,6 +423,7 @@ export const createWebDavProvider = (
   const parts = cleanPath.split("/").filter(Boolean);
   const folderPath = parts.length > 1 ? "/" + parts.slice(0, -1).join("/") : "/OpenClipSync";
   const devicesFileUrl = baseUrl + folderPath + "/openclip-devices.json";
+  const masterConfigFileUrl = baseUrl + folderPath + "/master_config.json";
 
   // 确保父目录存在 (MKCOL)
   const ensureDirectoryExists = async () => {
@@ -464,6 +465,17 @@ export const createWebDavProvider = (
             const parsedDevs = JSON.parse(devText);
             if (Array.isArray(parsedDevs)) {
               result.devices = extractDiscoveredDevices(result, parsedDevs);
+            }
+          }
+        } catch {}
+
+        try {
+          const masterRes = await fetch(masterConfigFileUrl, { method: "GET", headers: baseHeaders });
+          if (masterRes.ok) {
+            const masterText = await masterRes.text();
+            const masterJson = JSON.parse(masterText);
+            if (masterJson && masterJson.masterDeviceId) {
+              (result as any).masterLock = masterJson;
             }
           }
         } catch {}
@@ -525,6 +537,19 @@ export const createWebDavProvider = (
                 "Content-Type": "application/json",
               },
               body: JSON.stringify(payloadData.devices, null, 2),
+            });
+          } catch {}
+        }
+
+        if ((payloadData as any).masterLock) {
+          try {
+            await fetch(masterConfigFileUrl, {
+              method: "PUT",
+              headers: {
+                ...baseHeaders,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify((payloadData as any).masterLock, null, 2),
             });
           } catch {}
         }

@@ -140,6 +140,7 @@ export const CloudPage = () => {
       isForcedAuxiliary: false,
     });
     setMasterState(updated);
+    await runFullSync();
   };
 
   const updateDeviceModalitySource = async (
@@ -170,8 +171,13 @@ export const CloudPage = () => {
     };
 
     const updatedRules = { ...currentRules, [targetDeviceId]: updatedRule };
-    const nextMasterState = await setMasterDeviceState({ deviceRules: updatedRules });
+    const nextMasterState = await setMasterDeviceState({
+      isMasterDevice: true,
+      isForcedAuxiliary: false,
+      deviceRules: updatedRules,
+    });
     setMasterState(nextMasterState);
+    await runFullSync();
   };
 
   const handleToggleProvider = async (
@@ -602,7 +608,7 @@ export const CloudPage = () => {
                     <Group grow spacing="xs">
                       <Select
                         size="xs"
-                        disabled={!masterState.isMasterDevice}
+                        disabled={masterState.isForcedAuxiliary}
                         label="📋 剪贴板源"
                         data={deviceSelectOptions}
                         value={deviceRule.sources?.clipboard || "all"}
@@ -617,7 +623,7 @@ export const CloudPage = () => {
                       />
                       <Select
                         size="xs"
-                        disabled={!masterState.isMasterDevice}
+                        disabled={masterState.isForcedAuxiliary}
                         label="🔖 书签源"
                         data={deviceSelectOptions}
                         value={deviceRule.sources?.bookmarks || "all"}
@@ -632,7 +638,7 @@ export const CloudPage = () => {
                       />
                       <Select
                         size="xs"
-                        disabled={!masterState.isMasterDevice}
+                        disabled={masterState.isForcedAuxiliary}
                         label="📜 历史源"
                         data={deviceSelectOptions}
                         value={deviceRule.sources?.history || "all"}
@@ -647,7 +653,7 @@ export const CloudPage = () => {
                       />
                       <Select
                         size="xs"
-                        disabled={!masterState.isMasterDevice}
+                        disabled={masterState.isForcedAuxiliary}
                         label="🌐 会话源"
                         data={deviceSelectOptions}
                         value={deviceRule.sources?.sessions || "all"}
@@ -662,7 +668,7 @@ export const CloudPage = () => {
                       />
                       <Select
                         size="xs"
-                        disabled={!masterState.isMasterDevice}
+                        disabled={masterState.isForcedAuxiliary}
                         label="🧩 扩展源"
                         data={deviceSelectOptions}
                         value={deviceRule.sources?.extensions || "all"}

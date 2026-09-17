@@ -128,7 +128,7 @@ export const App = () => {
             <Image src={iconSrc} maw={26} />
             <Title order={6}>OpenClip Sync</Title>
             <Badge size="xs" variant="light" color="blue">
-              v2.5.0
+              v2.6.0
             </Badge>
 
             {/* Master/Auxiliary Device Role Badge */}

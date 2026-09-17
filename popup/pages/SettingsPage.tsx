@@ -132,7 +132,7 @@ export const SettingsPage = () => {
             <IconSettings size="1.2rem" color={theme.colors.indigo[6]} />
             <Title order={5}>OpenClip Sync 系统与服务设置</Title>
             <Badge size="xs" color="blue">
-              v2.5.0
+              v2.6.0
             </Badge>
           </Group>
           <Button size="xs" color="indigo" onClick={handleSave}>
@@ -310,7 +310,7 @@ export const SettingsPage = () => {
 
         <Group position="apart">
           <Text size="xs" color="dimmed">
-            OpenClip Sync v2.5.0 — 100% 独立自主去中心化架构
+            OpenClip Sync v2.6.0 — 100% 独立自主分模态 WebDAV 存储架构
           </Text>
           <Button size="sm" color="indigo" onClick={handleSave}>
             保存全部配置

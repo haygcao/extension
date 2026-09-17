@@ -1,7 +1,7 @@
 /**
- * utils/sync/engine.ts
- * 全模态数据同步管道 (Full-Spectrum Sync Engine)
- * 统一调度: 剪贴板历史(主)、主辅设备控制流、浏览器书签、浏览历史、打开的会话/标签页、扩展列表
+ * utils/sync/engine.ts — v2.6.0 分模态独立文件 WebDAV 存储架构 Sync Engine
+ * 包含: 剪贴板 (clipboard.json)、书签 (bookmarks.json)、历史 (history.json)、
+ *       会话 (sessions.json)、扩展 (extensions.json)、主控规则 (master_config.json)
  */
 
 import { getSyncSettings, setSyncStatus } from "~storage/syncSettings";
@@ -47,7 +47,7 @@ export async function getLocalMultiModalPayload(): Promise<MultiModalSyncPayload
   };
 }
 
-/** 执行全模态同步任务 */
+/** 执行 v2.6.0 分模态独立文件同步任务 */
 export async function runFullSync(): Promise<{ success: boolean; message: string }> {
   const provider = await getActiveProvider();
   if (!provider || !(await provider.isAvailable())) {
@@ -55,7 +55,7 @@ export async function runFullSync(): Promise<{ success: boolean; message: string
     return { success: false, message: "未配置或未启用同步后端" };
   }
 
-  await setSyncStatus({ status: "syncing", message: "全模态同步中..." });
+  await setSyncStatus({ status: "syncing", message: "全模态分文件同步中..." });
 
   try {
     const localPayload = await getLocalMultiModalPayload();
@@ -95,8 +95,8 @@ export async function runFullSync(): Promise<{ success: boolean; message: string
     }
 
     const statusMsg = masterState.isForcedAuxiliary
-      ? "同步完成 (已自动降级为辅助设备，受主设备规则约束)"
-      : "全模态同步完成";
+      ? "分模态同步完成 (受云端主设备规则约束)"
+      : "v2.6.0 分模态 WebDAV 独立文件同步完成";
 
     await setSyncStatus({
       status: "success",
