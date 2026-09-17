@@ -18,8 +18,7 @@ import { IconCloud, IconDatabase, IconFileText, IconServer } from "@tabler/icons
 import { useAtom } from "jotai";
 import { useEffect } from "react";
 
-import { useEntries } from "~popup/contexts/EntriesContext";
-import { storageUsageAtom } from "~popup/states/atoms";
+import { entriesAtom, storageUsageAtom } from "~popup/states/atoms";
 import {
   entriesToStorageUsage,
   formatBytes,
@@ -31,7 +30,7 @@ import { defaultBorderColor, lightOrDark } from "~utils/sx";
 
 export const StorageUsageModalContent = () => {
   const theme = useMantineTheme();
-  const entries = useEntries();
+  const [entries] = useAtom(entriesAtom);
   const [usage, setUsage] = useAtom(storageUsageAtom);
 
   useEffect(() => {

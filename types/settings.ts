@@ -35,7 +35,7 @@ export const defaultSettings = {
   pasteFromContextMenu: true,
   changelogIndicator: true,
   allowBlankItems: true,
-  defaultTab: Tab.Enum.All,
+  defaultTab: Tab.Enum.Clipboard,
   // theme: "light",
   themeV2: "system",
   localItemLimit: null,

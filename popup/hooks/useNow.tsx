@@ -1,12 +1,11 @@
 import { max } from "date-fns";
 import { useAtomValue } from "jotai";
 
-import { useEntries } from "~popup/contexts/EntriesContext";
-import { settingsAtom, staticNowAtom } from "~popup/states/atoms";
+import { entriesAtom, settingsAtom, staticNowAtom } from "~popup/states/atoms";
 import { getEntryTimestamp } from "~utils/entries";
 
 export const useNow = () => {
-  const entries = useEntries();
+  const entries = useAtomValue(entriesAtom) || [];
   const staticNow = useAtomValue(staticNowAtom);
   const settings = useAtomValue(settingsAtom);
 

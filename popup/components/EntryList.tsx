@@ -6,10 +6,9 @@ import { useEffect, useMemo, type CSSProperties, type ReactNode } from "react";
 import AutoSizer from "react-virtualized-auto-sizer";
 import { FixedSizeList } from "react-window";
 
-import { useFavoriteEntryIds } from "~popup/contexts/FavoriteEntryIdsContext";
 import { useEntryListNavigation } from "~popup/hooks/useEntryListNavigation";
 import { useSet } from "~popup/hooks/useSet";
-import { searchAtom } from "~popup/states/atoms";
+import { favoriteEntryIdsAtom, searchAtom } from "~popup/states/atoms";
 import { handleMutation } from "~popup/utils/mutation";
 import { addFavoriteEntryIds, deleteFavoriteEntryIds } from "~storage/favoriteEntryIds";
 import type { Entry } from "~types/entry";
@@ -53,7 +52,8 @@ const EntryRowRenderer = ({
 };
 
 export const EntryList = ({ entries, noEntriesOverlay }: Props) => {
-  const favoriteEntryIdsSet = useFavoriteEntryIds();
+  const favoriteEntryIds = useAtomValue(favoriteEntryIdsAtom) || [];
+  const favoriteEntryIdsSet = new Set<string>(favoriteEntryIds);
   const search = useAtomValue(searchAtom);
   const { listRef, selectedEntryIndex } = useEntryListNavigation(entries);
 

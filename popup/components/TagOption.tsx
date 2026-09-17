@@ -1,8 +1,9 @@
 import { Checkbox, Group, rem } from "@mantine/core";
 import { useFocusWithin, useHotkeys, useMouse } from "@mantine/hooks";
+import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 
-import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
+import { entryIdToTagsAtom } from "~popup/states/atoms";
 import { handleMutation } from "~popup/utils/mutation";
 import { toggleEntryTag } from "~storage/entryIdToTags";
 import { lightOrDark } from "~utils/sx";
@@ -20,7 +21,7 @@ interface Props {
 export const TagOption = ({ entryId, tag, focused, onHover, onClose }: Props) => {
   const { ref: groupRef, x, y } = useMouse({ resetOnExit: true });
   const { ref: checkboxRef, focused: checkboxFocused } = useFocusWithin<HTMLInputElement>();
-  const entryIdToTags = useEntryIdToTags();
+  const entryIdToTags = useAtomValue(entryIdToTagsAtom) || {};
 
   useEffect(() => {
     if (x === 0 && y === 0) {
@@ -30,8 +31,6 @@ export const TagOption = ({ entryId, tag, focused, onHover, onClose }: Props) =>
     onHover();
   }, [x, y]);
 
-  // Unfocus the checkbox whenever focused to emphasize that the group focus
-  // has priority.
   useEffect(() => {
     if (checkboxFocused) {
       checkboxRef.current.blur();

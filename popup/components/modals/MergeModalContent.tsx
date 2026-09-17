@@ -33,8 +33,7 @@ import { Controller, useForm } from "react-hook-form";
 import { FixedSizeList } from "react-window";
 import { z } from "zod";
 
-import { useFavoriteEntryIds } from "~popup/contexts/FavoriteEntryIdsContext";
-import { settingsAtom } from "~popup/states/atoms";
+import { favoriteEntryIdsAtom, settingsAtom } from "~popup/states/atoms";
 import { handleMutation } from "~popup/utils/mutation";
 import { updateClipboardSnapshot } from "~storage/clipboardSnapshot";
 import type { Entry } from "~types/entry";
@@ -86,7 +85,8 @@ const DraggableMergeItemRenderer = ({
 };
 
 export const MergeModalContent = ({ initialEntries }: Props) => {
-  const favoriteEntryIdsSet = useFavoriteEntryIds();
+  const favoriteEntryIds = useAtomValue(favoriteEntryIdsAtom) || [];
+  const favoriteEntryIdsSet = new Set(favoriteEntryIds);
   const settings = useAtomValue(settingsAtom);
 
   const {

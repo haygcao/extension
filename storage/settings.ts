@@ -2,6 +2,8 @@ import { Storage } from "@plasmohq/storage";
 
 import { defaultSettings, Settings } from "~types/settings";
 
+export type { Settings };
+
 const storage = new Storage({
   area: "local",
 });

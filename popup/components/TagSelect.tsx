@@ -10,9 +10,10 @@ import {
 } from "@mantine/core";
 import { useDisclosure, useHotkeys } from "@mantine/hooks";
 import { IconTags } from "@tabler/icons-react";
+import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useAllTags } from "~popup/contexts/AllTagsContext";
+import { entryIdToTagsAtom } from "~popup/states/atoms";
 import { defaultBorderColor, lightOrDark } from "~utils/sx";
 
 import { CommonActionIcon } from "./CommonActionIcon";
@@ -24,7 +25,18 @@ interface Props {
 
 export const TagSelect = ({ entryId }: Props) => {
   const theme = useMantineTheme();
-  const allTags = useAllTags();
+  const entryIdToTags = useAtomValue(entryIdToTagsAtom) || {};
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const tags of Object.values(entryIdToTags)) {
+      if (Array.isArray(tags)) {
+        for (const t of tags) set.add(t);
+      }
+    }
+    return Array.from(set);
+  }, [entryIdToTags]);
+
   const [opened, handlers] = useDisclosure(false);
   const [tagSearch, setTagSearch] = useState("");
   const tagSearchLowercase = useMemo(() => tagSearch.toLowerCase(), [tagSearch]);
@@ -49,115 +61,97 @@ export const TagSelect = ({ entryId }: Props) => {
     setFocusedTagIndex(0);
   }, [tagSearch]);
 
+  const maxFocusedTagIndex = matchedTags.length - (showCreateTagOption ? 0 : 1);
+
   useHotkeys(
     [
       [
         "ArrowUp",
-        () =>
-          setFocusedTagIndex(
-            (prevState) =>
-              Math.abs(matchedTags.length + +showCreateTagOption + prevState - 1) %
-              (matchedTags.length + +showCreateTagOption),
-          ),
+        () => {
+          if (opened && focusedTagIndex > 0) {
+            setFocusedTagIndex(focusedTagIndex - 1);
+
+            const focusedOption = scrollAreaRef.current?.children[
+              focusedTagIndex - 1
+            ] as HTMLDivElement;
+            focusedOption.scrollIntoView({ block: "nearest" });
+          }
+        },
       ],
       [
         "ArrowDown",
-        () =>
-          setFocusedTagIndex(
-            (prevState) =>
-              Math.abs(matchedTags.length + +showCreateTagOption + prevState + 1) %
-              (matchedTags.length + +showCreateTagOption),
-          ),
+        () => {
+          if (opened && focusedTagIndex < maxFocusedTagIndex) {
+            setFocusedTagIndex(focusedTagIndex + 1);
+
+            const focusedOption = scrollAreaRef.current?.children[
+              focusedTagIndex + 1
+            ] as HTMLDivElement;
+            focusedOption.scrollIntoView({ block: "nearest" });
+          }
+        },
       ],
     ],
     [],
   );
 
-  useEffect(() => {
-    scrollAreaRef.current
-      ?.querySelectorAll(".tag-option")
-      ?.[focusedTagIndex]?.scrollIntoView({ block: "nearest" });
-  }, [focusedTagIndex]);
-
   return (
-    <Popover
-      opened={opened}
-      onChange={(opened) => (opened ? handlers.open() : handlers.close())}
-      width={200}
-      position="bottom-end"
-      shadow="md"
-    >
+    <Popover opened={opened} position="bottom-end" shadow="md" onChange={handlers.toggle}>
       <Popover.Target>
-        <CommonActionIcon
-          backgroundColor={
-            opened
-              ? lightOrDark(
-                  theme,
-                  theme.colors.indigo[1],
-                  theme.fn.darken(theme.colors.indigo[9], 0.3),
-                )
-              : undefined
-          }
-          onClick={() => handlers.toggle()}
-        >
+        <CommonActionIcon onClick={handlers.toggle}>
           <IconTags size="1rem" />
         </CommonActionIcon>
       </Popover.Target>
-      <Popover.Dropdown p={0} onClick={(e) => e.stopPropagation()} sx={{ cursor: "default" }}>
-        <TextInput
-          value={tagSearch}
-          onChange={(e) => setTagSearch(e.target.value)}
-          size="xs"
-          variant="unstyled"
-          placeholder="Modify tags..."
-          autoFocus
-          px="xs"
-        />
-        <Divider sx={(theme) => ({ borderColor: defaultBorderColor(theme) })} />
-        {/* https://github.com/creativetimofficial/material-tailwind/issues/528 */}
-        <ScrollArea.Autosize placeholder={undefined} mah={200} p={rem(4)} ref={scrollAreaRef}>
-          <Stack spacing={0}>
-            {matchedTags.map((tag, i) => (
-              <TagOption
-                key={tag}
-                entryId={entryId}
-                tag={tag}
-                focused={i === focusedTagIndex}
-                onHover={() => setFocusedTagIndex(i)}
-                onClose={() => handlers.close()}
-              />
-            ))}
-            {showCreateTagOption && (
-              <>
-                <Divider
-                  sx={(theme) => ({
-                    borderColor: defaultBorderColor(theme),
-                    ".mantine-Divider-label": {
-                      marginTop: 0,
-                    },
-                  })}
-                  label={
-                    <Text fz="xs" color="dimmed">
-                      Create new tag:
-                    </Text>
-                  }
-                />
-                <TagOption
-                  entryId={entryId}
-                  tag={tagSearchLowercase}
-                  focused={focusedTagIndex === matchedTags.length}
-                  onHover={() => setFocusedTagIndex(matchedTags.length)}
-                  onClose={() => handlers.close()}
-                />
-              </>
-            )}
-            {matchedTags.length + +showCreateTagOption === 0 && (
-              <Text fz="xs" color="dimmed" align="center">
-                Start typing to create a new tag
-              </Text>
-            )}
-          </Stack>
-        </ScrollArea.Autosize>
+      <Popover.Dropdown p="xs">
+        <Stack spacing="xs" w={rem(180)}>
+          <TextInput
+            placeholder="搜索或添加标签..."
+            size="xs"
+            value={tagSearch}
+            onChange={(e) => setTagSearch(e.currentTarget.value)}
+            sx={(theme) => ({
+              ".mantine-Input-input": {
+                borderColor: defaultBorderColor(theme),
+                "&:focus, &:focus-within": {
+                  borderColor: theme.fn.primaryColor(),
+                },
+              },
+            })}
+            autoFocus
+          />
+          {matchedTags.length > 0 || showCreateTagOption ? (
+            <ScrollArea.Autosize mah={rem(150)} placeholder={undefined}>
+              <Stack ref={scrollAreaRef} spacing={0}>
+                {matchedTags.map((tag, index) => (
+                  <TagOption
+                    key={tag}
+                    entryId={entryId}
+                    focused={index === focusedTagIndex}
+                    tag={tag}
+                    onClose={handlers.close}
+                    onHover={() => setFocusedTagIndex(index)}
+                  />
+                ))}
+                {showCreateTagOption && (
+                  <>
+                    {matchedTags.length > 0 && <Divider my="xs" />}
+                    <TagOption
+                      entryId={entryId}
+                      focused={matchedTags.length === focusedTagIndex}
+                      tag={tagSearchLowercase}
+                      onClose={handlers.close}
+                      onHover={() => setFocusedTagIndex(matchedTags.length)}
+                    />
+                  </>
+                )}
+              </Stack>
+            </ScrollArea.Autosize>
+          ) : (
+            <Text color="dimmed" size="xs">
+              无相关标签
+            </Text>
+          )}
+        </Stack>
       </Popover.Dropdown>
     </Popover>
   );

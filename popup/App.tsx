@@ -1,12 +1,11 @@
 import {
   ActionIcon,
+  Badge,
   Box,
   Card,
   Divider,
   Group,
   Image,
-  Indicator,
-  rem,
   SegmentedControl,
   Stack,
   Switch,
@@ -18,57 +17,55 @@ import {
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
+  IconBookmark,
   IconChartBar,
   IconClipboardList,
   IconCloud,
-  IconExternalLink,
-  IconHeart,
-  IconHelp,
-  IconNews,
+  IconCrown,
+  IconDeviceDesktop,
+  IconGlobe,
+  IconHistory,
   IconPictureInPicture,
+  IconPuzzle,
   IconSearch,
   IconSettings,
-  IconStar,
+  IconShield,
 } from "@tabler/icons-react";
 import iconSrc from "data-base64:~assets/icon.png";
 import { useAtom, useAtomValue } from "jotai";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { match } from "ts-pattern";
 
-import { updateChangelogViewedAt } from "~storage/changelogViewedAt";
 import { toggleClipboardMonitorIsEnabled } from "~storage/clipboardMonitorIsEnabled";
 import {
   deleteFloatingWindowId,
   getFloatingWindowId,
   setFloatingWindowId,
 } from "~storage/floatingWindowId";
+import { getMasterDeviceState, type MasterDeviceState } from "~storage/masterDevice";
 import { Tab } from "~types/tab";
 import db from "~utils/db/react";
-import { defaultBorderColor, lightOrDark } from "~utils/sx";
-import { VERSION } from "~utils/version";
+import { defaultBorderColor } from "~utils/sx";
 
-import { ProBadge } from "./components/cloud/ProBadge";
-import { UserActionIcon } from "./components/cloud/UserActionIcon";
 import { SettingsModalContent } from "./components/modals/SettingsModalContent";
 import { StorageUsageModalContent } from "./components/modals/StorageUsageModalContent";
 import { ShortcutBadge } from "./components/ShortcutBadge";
 import { useApp } from "./hooks/useApp";
 import { useCloudEntriesQuery } from "./hooks/useCloudEntriesQuery";
-import { useCloudFavoritedEntriesQuery } from "./hooks/useCloudFavoritedEntriesQuery";
-import { useCloudTaggedEntriesQuery } from "./hooks/useCloudTaggedEntriesQuery";
 import { SEARCH_INPUT_ID } from "./hooks/useEntryListNavigation";
-import { useSettingsQuery } from "./hooks/useSettingsQuery";
-import { useSubscriptionsQuery } from "./hooks/useSubscriptionsQuery";
 import { AllPage } from "./pages/AllPage";
+import { BookmarksPage } from "./pages/BookmarksPage";
 import { CloudPage } from "./pages/CloudPage";
-import { FavoritesPage } from "./pages/FavoritesPage";
+import { DevicesPage } from "./pages/DevicesPage";
+import { ExtensionsPage } from "./pages/ExtensionsPage";
+import { HistoryPage } from "./pages/HistoryPage";
+import { SessionsPage } from "./pages/SessionsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import {
-  changelogViewedAtAtom,
   clipboardMonitorIsEnabledAtom,
   commandsAtom,
   refreshTokenAtom,
   searchAtom,
-  settingsAtom,
   tabAtom,
 } from "./states/atoms";
 
@@ -76,7 +73,6 @@ export const App = () => {
   useApp();
 
   const theme = useMantineTheme();
-
   const inputRef = useRef<HTMLInputElement>(null);
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -86,11 +82,23 @@ export const App = () => {
   const [search, setSearch] = useAtom(searchAtom);
   const [tab, setTab] = useAtom(tabAtom);
 
+  const [masterState, setMasterState] = useState<MasterDeviceState>({
+    isMasterDevice: false,
+    isForcedAuxiliary: false,
+    masterDeviceId: null,
+    masterDeviceName: null,
+    auxiliaryPullPolicy: "all_devices",
+    auxiliaryTargetDeviceId: null,
+    deviceRules: {},
+  });
+
   const clipboardMonitorIsEnabled = useAtomValue(clipboardMonitorIsEnabledAtom);
-  const settings = useAtomValue(settingsAtom);
-  const changelogViewedAt = useAtomValue(changelogViewedAtAtom);
   const refreshToken = useAtomValue(refreshTokenAtom);
   const commands = useAtomValue(commandsAtom);
+
+  useEffect(() => {
+    getMasterDeviceState().then(setMasterState);
+  }, []);
 
   const extensionActivationShortcut = commands.find(
     (command) =>
@@ -98,148 +106,69 @@ export const App = () => {
       (process.env.PLASMO_TARGET === "firefox-mv2" ? "_execute_browser_action" : "_execute_action"),
   )?.shortcut;
 
-  // Preload queries.
-  const auth = db.useAuth();
+  // Preload queries
   const connectionStatus = db.useConnectionStatus();
   const cloudEntriesQuery = useCloudEntriesQuery();
-  const cloudFavoritedEntriesQuery = useCloudFavoritedEntriesQuery();
-  const cloudTaggedEntriesQuery = useCloudTaggedEntriesQuery();
-  const subscriptionsQuery = useSubscriptionsQuery();
-  const settingsQuery = useSettingsQuery();
 
   if (clipboardMonitorIsEnabled === undefined || refreshToken === undefined) {
     return null;
   }
 
-  if (refreshToken && connectionStatus !== "closed") {
-    if (
-      auth.isLoading ||
-      cloudEntriesQuery.isLoading ||
-      cloudFavoritedEntriesQuery.isLoading ||
-      cloudTaggedEntriesQuery.isLoading ||
-      subscriptionsQuery.isLoading ||
-      settingsQuery.isLoading
-    ) {
-      return null;
-    }
-  }
-
   return (
     <Card
-      h={isFloatingPopup || isSidePanel ? "100%" : 600}
-      w={isFloatingPopup || isSidePanel ? "100%" : 700}
-      miw={isSidePanel ? 300 : 500}
+      h={isFloatingPopup || isSidePanel ? "100%" : 620}
+      w={isFloatingPopup || isSidePanel ? "100%" : 720}
+      miw={isSidePanel ? 320 : 520}
       p="sm"
     >
       <Stack h="100%" spacing="sm">
+        {/* Top Header Bar */}
         <Group align="center" position="apart">
           <Group align="center" spacing="xs">
-            <Image src={iconSrc} maw={28} />
-            {!isSidePanel && <Title order={6}>OpenClip Sync</Title>}
-            <ProBadge />
+            <Image src={iconSrc} maw={26} />
+            <Title order={6}>OpenClip Sync</Title>
+            <Badge size="xs" variant="light" color="blue">
+              v2.5.0
+            </Badge>
+
+            {/* Master/Auxiliary Device Role Badge */}
+            {masterState.isMasterDevice && !masterState.isForcedAuxiliary ? (
+              <Badge size="xs" color="indigo" leftSection={<IconCrown size={12} />}>
+                主设备
+              </Badge>
+            ) : masterState.isForcedAuxiliary ? (
+              <Badge size="xs" color="orange" leftSection={<IconShield size={12} />}>
+                辅助设备
+              </Badge>
+            ) : null}
           </Group>
+
           <Group align="center" spacing="xs" grow={false}>
-            <Tooltip
-              label={
-                <Group align="center" spacing={rem(4)} noWrap>
-                  <Text fz="xs">{chrome.i18n.getMessage("commonChangelog")}</Text>
-                  <IconExternalLink size="0.8rem" />
-                </Group>
-              }
-            >
-              <Indicator
-                color={lightOrDark(theme, "red.4", "red.6")}
-                size={8}
-                disabled={!settings.changelogIndicator || changelogViewedAt === VERSION}
-              >
-                <ActionIcon
-                  variant="light"
-                  color="indigo.5"
-                  onClick={async () => {
-                    await updateChangelogViewedAt();
-
-                    await chrome.tabs.create({
-                      url: "https://github.com/haygcao/extension/releases",
-                    });
-
-                    if (!isFloatingPopup && !isSidePanel) {
-                      window.close();
-                    }
-                  }}
-                >
-                  <IconNews size="1.125rem" />
-                </ActionIcon>
-              </Indicator>
-            </Tooltip>
-            <Tooltip
-              label={
-                <Group align="center" spacing={rem(4)} noWrap>
-                  <Text fz="xs">{chrome.i18n.getMessage("commonSupportDevelopment")}</Text>
-                  <IconExternalLink size="0.8rem" />
-                </Group>
-              }
-            >
-              <ActionIcon
-                variant="light"
-                color="indigo.5"
-                component="a"
-                href="https://ko-fi.com/cue322631"
-                target="_blank"
-              >
-                <IconHeart size="1.125rem" />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip
-              label={
-                <Group align="center" spacing={rem(4)} noWrap>
-                  <Text fz="xs">{chrome.i18n.getMessage("commonHelpAndFeedback")}</Text>
-                  <IconExternalLink size="0.8rem" />
-                </Group>
-              }
-            >
-              <ActionIcon
-                variant="light"
-                color="indigo.5"
-                component="a"
-                href="https://chromewebstore.google.com/detail/ombhfdknibjljckajldielimdjcomcek/support"
-                target="_blank"
-              >
-                <IconHelp size="1.125rem" />
-              </ActionIcon>
-            </Tooltip>
-            <Divider orientation="vertical" h={16} sx={{ alignSelf: "inherit" }} />
-            <Tooltip
-              label={<Text fz="xs">{chrome.i18n.getMessage("commonFloatingMode")}</Text>}
-              disabled={isFloatingPopup || isSidePanel}
-            >
+            {/* Floating Mode */}
+            <Tooltip label={<Text fz="xs">独立悬浮窗</Text>} disabled={isFloatingPopup || isSidePanel}>
               <ActionIcon
                 variant="light"
                 color="indigo.5"
                 onClick={async () => {
                   const floatingWindowId = await getFloatingWindowId();
-
                   if (floatingWindowId !== null) {
                     try {
                       await chrome.windows.update(floatingWindowId, { focused: true });
                       window.close();
                       return;
                     } catch {
-                      // Window no longer exists, clear it.
                       await deleteFloatingWindowId();
                     }
                   }
-
                   const newWindow = await chrome.windows.create({
                     url: chrome.runtime.getURL("popup.html?ref=popup"),
                     type: "popup",
-                    height: 600,
-                    width: 700,
+                    height: 620,
+                    width: 720,
                   });
-
                   if (newWindow.id !== undefined) {
                     await setFloatingWindowId(newWindow.id);
                   }
-
                   window.close();
                 }}
                 disabled={isFloatingPopup || isSidePanel}
@@ -247,14 +176,16 @@ export const App = () => {
                 <IconPictureInPicture size="1.125rem" />
               </ActionIcon>
             </Tooltip>
-            <Tooltip label={<Text fz="xs">{chrome.i18n.getMessage("commonStorageUsage")}</Text>}>
+
+            {/* Storage usage */}
+            <Tooltip label={<Text fz="xs">存储容量统计</Text>}>
               <ActionIcon
                 variant="light"
                 color="indigo.5"
                 onClick={() =>
                   modals.open({
                     padding: 0,
-                    size: "xl",
+                    size: "lg",
                     withCloseButton: false,
                     children: <StorageUsageModalContent />,
                   })
@@ -263,15 +194,17 @@ export const App = () => {
                 <IconChartBar size="1.125rem" />
               </ActionIcon>
             </Tooltip>
-            <Tooltip label={<Text fz="xs">{chrome.i18n.getMessage("commonSettings")}</Text>}>
+
+            {/* Settings Modal */}
+            <Tooltip label={<Text fz="xs">系统与同步设置</Text>}>
               <ActionIcon
                 variant="light"
                 color="indigo.5"
                 onClick={() =>
                   modals.open({
-                    padding: 0,
-                    size: "xl",
-                    withCloseButton: false,
+                    padding: "md",
+                    size: "lg",
+                    title: "OpenClip Sync 设置",
                     children: <SettingsModalContent />,
                   })
                 }
@@ -279,8 +212,10 @@ export const App = () => {
                 <IconSettings size="1.125rem" />
               </ActionIcon>
             </Tooltip>
-            <UserActionIcon />
+
             <Divider orientation="vertical" h={16} sx={{ alignSelf: "inherit" }} />
+
+            {/* Clipboard Monitor Switch */}
             <Switch
               size="md"
               color="indigo.5"
@@ -289,25 +224,24 @@ export const App = () => {
             />
           </Group>
         </Group>
+
+        {/* Global Search and Navigation Tabs */}
         <Group align="center" position="apart">
           <TextInput
             ref={inputRef}
             id={SEARCH_INPUT_ID}
-            placeholder="Search items or tags"
+            placeholder="搜索剪贴板、书签、历史..."
             icon={<IconSearch size="1rem" />}
             size="xs"
             value={search}
             onChange={(e) => setSearch(e.currentTarget.value)}
-            w={250}
+            w={220}
             sx={{
               ".mantine-Input-input": {
                 borderColor: defaultBorderColor(theme),
                 "&:focus, &:focus-within": {
                   borderColor: theme.fn.primaryColor(),
                 },
-              },
-              ".mantine-Input-rightSection": {
-                justifyContent: "end",
               },
             }}
             rightSection={
@@ -321,50 +255,109 @@ export const App = () => {
             rightSectionProps={{ onClick: () => inputRef.current?.focus() }}
             autoFocus
           />
+
+          {/* Primary Modality Tabs */}
           <SegmentedControl
             value={tab}
             onChange={(newTab) => setTab(Tab.parse(newTab))}
             size="xs"
             color={match(tab)
-              .with(Tab.Enum.All, () => "indigo.5")
-              .with(Tab.Enum.Favorites, () => "yellow.5")
-              .with(Tab.Enum.Cloud, () => "cyan.5")
+              .with(Tab.Enum.Clipboard, () => "indigo.5")
+              .with(Tab.Enum.Cloud, () => "violet.5")
+              .with(Tab.Enum.Sessions, () => "cyan.5")
+              .with(Tab.Enum.Bookmarks, () => "blue.5")
+              .with(Tab.Enum.History, () => "orange.5")
+              .with(Tab.Enum.Extensions, () => "teal.5")
+              .with(Tab.Enum.Devices, () => "gray.6")
+              .with(Tab.Enum.Settings, () => "grape.5")
               .exhaustive()}
             data={[
               {
                 label: (
                   <Group align="center" spacing={4} noWrap>
-                    <IconClipboardList size="1rem" />
-                    <Text>{chrome.i18n.getMessage("commonAll")}</Text>
+                    <IconClipboardList size="0.85rem" />
+                    <Text size="xs">📋 剪贴板</Text>
                   </Group>
                 ),
-                value: Tab.Enum.All,
+                value: Tab.Enum.Clipboard,
               },
               {
                 label: (
                   <Group align="center" spacing={4} noWrap>
-                    <IconStar size="1rem" />
-                    <Text>{chrome.i18n.getMessage("commonFavorites")}</Text>
-                  </Group>
-                ),
-                value: Tab.Enum.Favorites,
-              },
-              {
-                label: (
-                  <Group align="center" spacing={4} noWrap>
-                    <IconCloud size="1rem" />
-                    <Text>{chrome.i18n.getMessage("commonCloud")}</Text>
+                    <IconCloud size="0.85rem" />
+                    <Text size="xs">☁️ 云同步</Text>
                   </Group>
                 ),
                 value: Tab.Enum.Cloud,
               },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconGlobe size="0.85rem" />
+                    <Text size="xs">🌐 会话标签</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.Sessions,
+              },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconBookmark size="0.85rem" />
+                    <Text size="xs">🔖 书签</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.Bookmarks,
+              },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconHistory size="0.85rem" />
+                    <Text size="xs">📜 历史</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.History,
+              },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconPuzzle size="0.85rem" />
+                    <Text size="xs">🧩 扩展</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.Extensions,
+              },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconDeviceDesktop size="0.85rem" />
+                    <Text size="xs">💻 设备墙</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.Devices,
+              },
+              {
+                label: (
+                  <Group align="center" spacing={4} noWrap>
+                    <IconSettings size="0.85rem" />
+                    <Text size="xs">⚙️ 设置</Text>
+                  </Group>
+                ),
+                value: Tab.Enum.Settings,
+              },
             ]}
           />
         </Group>
+
+        {/* Tab Page Views */}
         {match(tab)
-          .with(Tab.Enum.All, () => <AllPage />)
-          .with(Tab.Enum.Favorites, () => <FavoritesPage />)
+          .with(Tab.Enum.Clipboard, () => <AllPage />)
           .with(Tab.Enum.Cloud, () => <CloudPage />)
+          .with(Tab.Enum.Sessions, () => <SessionsPage searchQuery={search} />)
+          .with(Tab.Enum.Bookmarks, () => <BookmarksPage searchQuery={search} />)
+          .with(Tab.Enum.History, () => <HistoryPage searchQuery={search} />)
+          .with(Tab.Enum.Extensions, () => <ExtensionsPage searchQuery={search} />)
+          .with(Tab.Enum.Devices, () => <DevicesPage />)
+          .with(Tab.Enum.Settings, () => <SettingsPage />)
           .exhaustive()}
       </Stack>
     </Card>

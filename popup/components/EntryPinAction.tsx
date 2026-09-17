@@ -1,7 +1,8 @@
 import { Tooltip, useMantineTheme } from "@mantine/core";
 import { IconPin, IconPinFilled } from "@tabler/icons-react";
+import { useAtomValue } from "jotai";
 
-import { usePinnedEntryIds } from "~popup/contexts/PinnedEntryIdsContext";
+import { pinnedEntryIdsAtom } from "~popup/states/atoms";
 import { handleMutation } from "~popup/utils/mutation";
 import { addPinnedEntryIds, deletePinnedEntryIds } from "~storage/pinnedEntryIds";
 
@@ -13,8 +14,8 @@ interface Props {
 
 export const EntryPinAction = ({ entryId }: Props) => {
   const theme = useMantineTheme();
-  const pinnedEntryIdsSet = usePinnedEntryIds();
-  const isPinned = pinnedEntryIdsSet.has(entryId);
+  const pinnedEntryIds = useAtomValue(pinnedEntryIdsAtom) || [];
+  const isPinned = pinnedEntryIds.includes(entryId);
 
   return (
     <Tooltip label={isPinned ? "取消置顶" : "置顶并永久保存"}>

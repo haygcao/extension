@@ -1,6 +1,7 @@
 import { IconTrash } from "@tabler/icons-react";
+import { useAtomValue } from "jotai";
 
-import { useFavoriteEntryIds } from "~popup/contexts/FavoriteEntryIdsContext";
+import { favoriteEntryIdsAtom } from "~popup/states/atoms";
 import { handleMutation } from "~popup/utils/mutation";
 import { deleteEntries } from "~utils/storage";
 
@@ -11,8 +12,8 @@ interface Props {
 }
 
 export const EntryDeleteAction = ({ entryId }: Props) => {
-  const favoriteEntryIdsSet = useFavoriteEntryIds();
-  const isFavoriteEntry = favoriteEntryIdsSet.has(entryId);
+  const favoriteEntryIds = useAtomValue(favoriteEntryIdsAtom) || [];
+  const isFavoriteEntry = favoriteEntryIds.includes(entryId);
 
   return (
     <CommonActionIcon

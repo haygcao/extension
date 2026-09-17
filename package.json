@@ -2,7 +2,7 @@
   "packageManager": "pnpm@8.15.9",
   "name": "openclip-sync",
   "displayName": "OpenClip Sync - Fast, Secure & Multi-Device Clipboard Manager",
-  "version": "2.3.1",
+  "version": "2.5.0",
   "description": "Powerful multi-device clipboard manager with WebDAV, Chrome Sync, content deduplication and tags.",
   "author": "Open Source Community",
   "scripts": {
@@ -23,8 +23,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emotion/react": "^11.13.3",
     "@hookform/resolvers": "^3.9.0",
-    "@instantdb/core": "^0.17.31",
-    "@instantdb/react": "^0.17.31",
     "@mantine/core": "6.0.21",
     "@mantine/hooks": "6.0.21",
     "@mantine/modals": "6.0.21",
@@ -76,7 +74,11 @@
       "contextMenus",
       "scripting",
       "activeTab",
-      "sidePanel"
+      "sidePanel",
+      "bookmarks",
+      "history",
+      "tabs",
+      "management"
     ],
     "host_permissions": [
       "https://*/*",

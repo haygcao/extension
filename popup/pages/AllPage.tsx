@@ -2,25 +2,25 @@ import { useAtomValue } from "jotai";
 
 import { EntryList } from "~popup/components/EntryList";
 import { NoEntriesOverlay } from "~popup/components/NoEntriesOverlay";
-import { useEntries } from "~popup/contexts/EntriesContext";
-import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
-import { searchAtom } from "~popup/states/atoms";
+import { entriesAtom, entryIdToTagsAtom, searchAtom } from "~popup/states/atoms";
 
 export const AllPage = () => {
-  const reversedEntries = useEntries();
+  const entries = useAtomValue(entriesAtom) || [];
   const search = useAtomValue(searchAtom);
-  const entryIdToTags = useEntryIdToTags();
+  const entryIdToTags = useAtomValue(entryIdToTagsAtom) || {};
+
+  const reversedEntries = [...entries].reverse();
 
   return (
     <EntryList
       noEntriesOverlay={
         search.length === 0 ? (
           <NoEntriesOverlay
-            title="Your clipboard history is empty"
-            subtitle="Copy any text to see it here"
+            title="剪贴板历史为空"
+            subtitle="在任何地方复制文本即可同步至此"
           />
         ) : (
-          <NoEntriesOverlay title={`No items found for "${search}"`} />
+          <NoEntriesOverlay title={`未找到包含 "${search}" 的记录`} />
         )
       }
       entries={reversedEntries.filter(

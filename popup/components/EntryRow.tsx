@@ -3,14 +3,14 @@ import { modals } from "@mantine/modals";
 import { IconEdit, IconKeyboard } from "@tabler/icons-react";
 import { useAtomValue } from "jotai";
 
-import { useEntryIdToTags } from "~popup/contexts/EntryIdToTagsContext";
-import { usePinnedEntryIds } from "~popup/contexts/PinnedEntryIdsContext";
 import { useCopyEntry } from "~popup/hooks/useCopyEntry";
 import { useNow } from "~popup/hooks/useNow";
 import {
   clipboardSnapshotAtom,
   commandsAtom,
   entryCommandsAtom,
+  entryIdToTagsAtom,
+  pinnedEntryIdsAtom,
   settingsAtom,
 } from "~popup/states/atoms";
 import type { Entry } from "~types/entry";
@@ -18,7 +18,6 @@ import { badgeDateFormatter } from "~utils/date";
 import { getEntryTimestamp } from "~utils/entries";
 import { defaultBorderColor, lightOrDark } from "~utils/sx";
 
-import { EntryCloudAction } from "./cloud/EntryCloudAction";
 import { CommonActionIcon } from "./CommonActionIcon";
 import { EntryDeleteAction } from "./EntryDeleteAction";
 import { EntryFavoriteAction } from "./EntryFavoriteAction";
@@ -39,13 +38,13 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
   const theme = useMantineTheme();
   const now = useNow();
   const settings = useAtomValue(settingsAtom);
-  const entryIdToTags = useEntryIdToTags();
+  const entryIdToTags = useAtomValue(entryIdToTagsAtom) || {};
   const entryCommands = useAtomValue(entryCommandsAtom);
   const commands = useAtomValue(commandsAtom);
   const clipboardSnapshot = useAtomValue(clipboardSnapshotAtom);
   const copyEntry = useCopyEntry();
-  const pinnedEntryIdsSet = usePinnedEntryIds();
-  const isPinned = pinnedEntryIdsSet.has(entry.id);
+  const pinnedEntryIds = useAtomValue(pinnedEntryIdsAtom) || [];
+  const isPinned = pinnedEntryIds.includes(entry.id);
 
   const commandName = entryCommands.find(
     (entryCommand) => entryCommand.entryId === entry.id,
@@ -176,7 +175,6 @@ export const EntryRow = ({ entry, selectedEntryIds, isKeyboardSelected }: Props)
           >
             <IconEdit size="1rem" />
           </CommonActionIcon>
-          <EntryCloudAction entry={entry} />
           <EntryPinAction entryId={entry.id} />
           <EntryFavoriteAction entryId={entry.id} />
           <EntryDeleteAction entryId={entry.id} />
